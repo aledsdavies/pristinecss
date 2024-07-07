@@ -1,21 +1,19 @@
 package parser
 
-import "fmt"
-
 const (
 	ILLEGAL = "ILLEGAL"
 	EOF     = "EOF"
 
 	// Identifiers + literals
 
-	COMMENT   = "COMMENT"
-	IDENT     = "IDENT"
-	NUMBER    = "NUMBER"
-	STRING    = "STRING"
+	COMMENT = "COMMENT"
+	IDENT   = "IDENT"
+	NUMBER  = "NUMBER"
+	STRING  = "STRING"
 
-    // CSS Specifics
-    SELECTOR  = "SELECTOR"
-    COLOR     = "COLOR"
+	// CSS Specifics
+	SELECTOR  = "SELECTOR"
+	COLOR     = "COLOR"
 	IMPORTANT = "IMPORTANT"
 	UNIT      = "UNIT"
 
@@ -49,11 +47,52 @@ const (
 
 type TokenType string
 
+const initialBufferSize = 2
+
 type Token struct {
-	Type    TokenType
-	Literal string
-	Line    int
-	Column  int
+    Type    TokenType
+    Literal []rune
+    buffer  []rune
+    Line    int
+    Column  int
+}
+
+func NewToken() *Token {
+    return &Token{
+        buffer: make([]rune, initialBufferSize),
+    }
+}
+
+func (t *Token) SetLiteral(literal []rune) {
+    needed := len(literal)
+    if cap(t.buffer) < needed {
+        // Double the capacity until it's enough
+        newCap := cap(t.buffer)
+        for newCap < needed {
+            newCap *= 2
+        }
+        newBuffer := make([]rune, newCap)
+        copy(newBuffer, t.buffer)
+        t.buffer = newBuffer
+    }
+    t.Literal = t.buffer[:needed]
+    copy(t.Literal, literal)
+}
+
+func (t *Token) AppendLiteral(b rune) {
+    if len(t.Literal) == cap(t.buffer) {
+        newBuffer := make([]rune, cap(t.buffer)*2)
+        copy(newBuffer, t.buffer)
+        t.buffer = newBuffer
+    }
+    t.Literal = append(t.Literal, b)
+}
+
+func (t *Token) Reset() {
+    t.Type = ILLEGAL
+    t.Literal = t.Literal[:0]
+    t.Line = 0
+    t.Column = 0
 }
 
 var keywords = map[string]TokenType{}
@@ -66,46 +105,47 @@ func LookupIdent(ident string) TokenType {
 	return IDENT
 }
 
-var units = []string{
+var units = [][]rune{
 	// Absolute length units
-	"cm", "mm", "in", "px", "pt", "pc", "Q",
-
+	[]rune("cm"), []rune("mm"), []rune("in"), []rune("px"), []rune("pt"), []rune("pc"), []rune("Q"),
 	// Relative length units
-	"em", "ex", "ch", "rem", "lh", "rlh", "vb", "vi",
-
+	[]rune("em"), []rune("ex"), []rune("ch"), []rune("rem"), []rune("lh"), []rune("rlh"), []rune("vb"), []rune("vi"),
 	// Viewport-percentage lengths
-	"vw", "vh", "vmin", "vmax", "svw", "svh", "lvw", "lvh", "dvw", "dvh", "vi", "vb",
-
+	[]rune("vw"), []rune("vh"), []rune("vmin"), []rune("vmax"), []rune("svw"), []rune("svh"), []rune("lvw"), []rune("lvh"), []rune("dvw"), []rune("dvh"), []rune("vi"), []rune("vb"),
 	// Container query length units
-	"cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
-
+	[]rune("cqw"), []rune("cqh"), []rune("cqi"), []rune("cqb"), []rune("cqmin"), []rune("cqmax"),
 	// Percentage
-	"%",
-
+	[]rune("%"),
 	// Angle units
-	"deg", "grad", "rad", "turn",
-
+	[]rune("deg"), []rune("grad"), []rune("rad"), []rune("turn"),
 	// Time units
-	"s", "ms",
-
+	[]rune("s"), []rune("ms"),
 	// Frequency units
-	"Hz", "kHz",
-
+	[]rune("Hz"), []rune("kHz"),
 	// Resolution units
-	"dpi", "dpcm", "dppx",
-
+	[]rune("dpi"), []rune("dpcm"), []rune("dppx"),
 	// Flex units
-	"fr",
+	[]rune("fr"),
 }
 
-func isUnit(literal string) bool {
-	if literal == "%" {
-		fmt.Println("is percent")
-	}
+func isUnit(literal []rune) bool {
 	for _, unit := range units {
-		if literal == unit {
+		if runesEqual(literal, unit) {
 			return true
 		}
 	}
 	return false
+}
+
+// Helper function to compare two rune slices
+func runesEqual(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
