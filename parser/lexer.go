@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -10,42 +9,55 @@ import (
 )
 
 type Lexer struct {
-	input        *bufio.Reader
-	ch           rune
-	peeked       bool
-	peekedChar   rune
-	lastToken    TokenType
-	position     int
-	readPosition int
-	line         int
-	column       int
-
-	// Info to help with debuging
-	lastLine   int
-	lastColumn int
-	lastChar   rune
-	tokenCount int
-	debugInfo  strings.Builder
+	input              *bufio.Reader
+	ch                 rune
+	position           int
+	readPosition       int
+	line               int
+	column             int
+	lastToken          TokenType
+	braceLevel         int
+	bracketLevel       int
+	squareBracketLevel int
+	assigning          bool
+	tokenBuffer        []*Token
+	currentToken       int
 }
 
 func NewLexer(input io.Reader) *Lexer {
-	l := &Lexer{input: bufio.NewReader(input), line: 1, column: 0}
+	l := &Lexer{
+		input:       bufio.NewReader(input),
+		line:        1,
+		column:      0,
+		tokenBuffer: make([]*Token, 100),
+	}
+
+	for i := range l.tokenBuffer {
+		l.tokenBuffer[i] = &Token{}
+	}
+
 	l.readChar()
 	return l
 }
 
-func (l *Lexer) readChar() {
-	if l.peeked {
-		l.ch = l.peekedChar
-		l.peeked = false
-	} else {
-		ch, _, err := l.input.ReadRune()
-		if err != nil {
-			l.ch = 0 // ASCII code for 'NUL'
-		} else {
-			l.ch = ch
-		}
+func (l *Lexer) getNextToken() *Token {
+	if l.currentToken >= len(l.tokenBuffer) {
+		l.currentToken = 0
 	}
+	tok := l.tokenBuffer[l.currentToken]
+	l.currentToken++
+	return tok
+}
+
+func (l *Lexer) readChar() {
+	var err error
+	l.ch, _, err = l.input.ReadRune()
+	if err != nil {
+		l.ch = 0
+	}
+
+	l.position = l.readPosition
+	l.readPosition++
 
 	if l.ch == '\n' {
 		l.line++
@@ -53,44 +65,273 @@ func (l *Lexer) readChar() {
 	} else {
 		l.column++
 	}
-
-	l.position = l.readPosition
-	l.readPosition++
 }
 
 func (l *Lexer) peekChar() rune {
-	if l.peeked {
-		return l.peekedChar
-	}
-
 	ch, _, err := l.input.ReadRune()
 	if err != nil {
-		l.peekedChar = 0 // ASCII code for 'NUL'
-	} else {
-		l.peekedChar = ch
+		return 0
 	}
-
-	l.peeked = true
-	return l.peekedChar
+	l.input.UnreadRune()
+	return ch
 }
 
-func (l *Lexer) peekString(s string) bool {
-	pos := l.input.Buffered()
-	buf, err := l.input.Peek(len(s))
-	if err != nil {
-		return false
+func (l *Lexer) NextToken() Token {
+	l.skipWhitespace()
+
+	tok := l.getNextToken()
+	tok.Line = l.line
+	tok.Column = l.column
+
+	switch l.ch {
+	case ';':
+		l.assigning = false
+		l.newToken(tok, SEMICOLON, l.ch)
+	case ',':
+		l.newToken(tok, COMMA, l.ch)
+	case '(':
+		l.braceLevel++
+		l.newToken(tok, LPAREN, l.ch)
+	case ')':
+		l.braceLevel--
+		l.newToken(tok, RPAREN, l.ch)
+	case '{':
+		l.braceLevel++
+		l.newToken(tok, LBRACE, l.ch)
+	case '}':
+		l.braceLevel--
+		l.newToken(tok, RBRACE, l.ch)
+	case '[':
+		l.squareBracketLevel++
+		l.newToken(tok, LBRACKET, l.ch)
+	case ']':
+		l.squareBracketLevel--
+		l.newToken(tok, RBRACKET, l.ch)
+	case '=':
+		l.newToken(tok, EQUALS, l.ch)
+	case '@':
+		l.newToken(tok, AT, l.ch)
+	case '*':
+		l.newToken(tok, ASTERISK, l.ch)
+	case '+':
+		l.newToken(tok, PLUS, l.ch)
+	case '>':
+		l.newToken(tok, GREATER, l.ch)
+	case '~':
+		l.newToken(tok, TILDE, l.ch)
+	case '|':
+		l.newToken(tok, PIPE, l.ch)
+	case '^':
+		l.newToken(tok, CARET, l.ch)
+	case '$':
+		l.newToken(tok, DOLLAR, l.ch)
+	case '%':
+		tok.Type, tok.Literal = l.handlePercent()
+	case '/':
+		tok.Type, tok.Literal = l.handleSlash()
+	case '"', '\'':
+		tok.Type, tok.Literal = l.readString()
+		l.lastToken = tok.Type
+		return *tok
+	case '!':
+		tok.Type, tok.Literal = l.handleImportant()
+		l.lastToken = tok.Type
+	case ':':
+		if l.lastToken == IDENT {
+			l.assigning = true
+		}
+
+		tok.Type, tok.Literal = l.handleColon()
+		l.lastToken = tok.Type
+		return *tok
+	case '#':
+		tok.Type, tok.Literal = l.handleHash()
+		l.lastToken = tok.Type
+		return *tok
+	case '.':
+		tok.Type, tok.Literal = l.handleDot()
+		l.lastToken = tok.Type
+		return *tok
+	case '-':
+		tok.Type, tok.Literal = l.handleDash()
+		l.lastToken = tok.Type
+		return *tok
+	case 0:
+		tok.Literal = ""
+		tok.Type = EOF
+	default:
+		if isLetter(l.ch) {
+			tok.Type, tok.Literal = l.readIdentifier()
+			l.lastToken = tok.Type
+			return *tok
+		} else if isDigit(l.ch) {
+			tok.Type, tok.Literal = l.readNumber()
+			l.lastToken = tok.Type
+			return *tok
+		} else {
+			l.newToken(tok, ILLEGAL, l.ch)
+		}
 	}
-	if string(buf) == s {
-		return true
-	}
-	l.input.Discard(pos)
-	return false
+
+	l.readChar()
+	l.lastToken = tok.Type
+	return *tok
 }
 
-func (l *Lexer) readComment() string {
+func (l *Lexer) handlePercent() (TokenType, string) {
+	if l.lastToken == NUMBER {
+		return UNIT, "%"
+	}
+	return ILLEGAL, "%"
+}
+
+func (l *Lexer) handleSlash() (TokenType, string) {
+	if l.peekChar() == '*' {
+		return l.readComment()
+	}
+	return DIVIDE, "/"
+}
+
+func (l *Lexer) handleImportant() (TokenType, string) {
+	if l.peekString("important") {
+		l.readChar() // consume '!'
+		for range "important" {
+			l.readChar()
+		}
+		return IMPORTANT, "!important"
+	}
+	return ILLEGAL, "!"
+}
+
+func (l *Lexer) handleColon() (TokenType, string) {
+	l.readChar() // Consule the :
+	if isIdentStart(l.ch) {
+		var ident strings.Builder
+		ident.WriteRune(':')
+		for isIdentPart(l.ch) {
+			ident.WriteRune(l.ch)
+			l.readChar()
+		}
+		literal := ident.String()
+		return SELECTOR, literal
+	}
+
+	return COLON, ":"
+}
+
+func (l *Lexer) handleHash() (TokenType, string) {
+	l.readChar() // consume '#'
+	if isIdentStart(l.ch) || isDigit(l.ch) {
+		return l.readHashOrColor()
+	}
+	return ILLEGAL, "#"
+}
+
+func (l *Lexer) handleDot() (TokenType, string) {
+	l.readChar() // consume '.'
+	if isIdentStart(l.ch) {
+		return l.readClassSelector()
+	}
+	if isDigit(l.ch) {
+		return l.readNumber()
+	}
+	return DOT, "."
+}
+
+func (l *Lexer) handleDash() (TokenType, string) {
+    l.readChar() // consume the dash
+
+    next := l.ch
+    if next == '-' {
+        // Custom property (e.g., --custom-property)
+        return l.readCustomProperty()
+    } else if isDigit(next) {
+        // Negative number
+        return l.readNumber()
+    } else if isWhitespace(next) && l.lastToken == NUMBER {
+        // Likely an arithmetic operation (e.g., 10 - 5)
+        return MINUS, "-"
+    } else if isIdentStart(next) || next == '\\' {
+        // Identifier starting with a dash
+        return l.readIdentifier()
+    }
+
+    // Single dash
+    return MINUS, "-"
+}
+
+func (l *Lexer) readString() (TokenType, string) {
+	delimiter := l.ch
+	var str strings.Builder
+	l.readChar() // consume opening quote
+
+	for l.ch != delimiter && l.ch != 0 && l.ch != '\n' {
+		if l.ch == '\\' && l.peekChar() == delimiter {
+			l.readChar()
+		}
+		str.WriteRune(l.ch)
+		l.readChar()
+	}
+
+	if l.ch == delimiter {
+		l.readChar() // consume closing quote
+	}
+
+	return STRING, str.String()
+}
+
+func (l *Lexer) readNumber() (TokenType, string) {
+	var num strings.Builder
+	for isDigit(l.ch) {
+		num.WriteRune(l.ch)
+		l.readChar()
+	}
+	if l.ch == '.' && isDigit(l.peekChar()) {
+		num.WriteRune(l.ch)
+		l.readChar()
+		for isDigit(l.ch) {
+			num.WriteRune(l.ch)
+			l.readChar()
+		}
+	}
+	return NUMBER, num.String()
+}
+
+func (l *Lexer) readIdentifier() (TokenType, string) {
+	var ident strings.Builder
+	for isIdentPart(l.ch) || l.ch == '-' || (l.ch == ':' && l.braceLevel == 0 && l.bracketLevel == 0) {
+		ident.WriteRune(l.ch)
+		l.readChar()
+	}
+	literal := ident.String()
+	if isUnit(literal) {
+		return UNIT, literal
+	}
+
+	if l.braceLevel == 0 && l.squareBracketLevel == 0 {
+		return SELECTOR, literal
+	}
+
+	return IDENT, literal
+}
+
+func (l *Lexer) readCustomProperty() (TokenType, string) {
+	var prop strings.Builder
+	prop.WriteString("--")
+	l.readChar() // move to first character after '--'
+
+	for isIdentPart(l.ch) || l.ch == '-' {
+		prop.WriteRune(l.ch)
+		l.readChar()
+	}
+
+	return IDENT, prop.String()
+}
+
+func (l *Lexer) readComment() (TokenType, string) {
 	var comment strings.Builder
-	l.readChar()
-	l.readChar()
+	l.readChar() // consume '/'
+	l.readChar() // consume '*'
 
 	for {
 		if l.ch == '*' && l.peekChar() == '/' {
@@ -105,346 +346,146 @@ func (l *Lexer) readComment() string {
 		l.readChar()
 	}
 
-	return comment.String()
+	return COMMENT, comment.String()
 }
 
-func (l *Lexer) NextToken() Token {
-	var tok Token
-	l.skipWhitespace()
-	line := l.line
-	column := l.column
+func (l *Lexer) readHashOrColor() (TokenType, string) {
+	var value strings.Builder
+	value.WriteRune('#')
 
-	// Safety check
-	if line == l.lastLine && column == l.lastColumn && l.ch == l.lastChar {
-		l.debugInfo.WriteString(fmt.Sprintf("FATAL: Lexer stuck at line %d, column %d, character '%c'\n", line, column, l.ch))
-		l.debugInfo.WriteString(fmt.Sprintf("Total tokens processed: %d\n", l.tokenCount))
-		l.debugInfo.WriteString(fmt.Sprintf("Current lexer state: %+v\n", l))
-		panic(l.debugInfo.String())
+	colorLength := 0
+	for isHexDigit(l.ch) && colorLength < 6 {
+		value.WriteRune(l.ch)
+		l.readChar()
+		colorLength++
 	}
 
-	l.lastLine = line
-	l.lastColumn = column
-	l.lastChar = l.ch
-	l.tokenCount++
-
-	switch l.ch {
-	case ':':
-		tok = newToken(COLON, l.ch, line, column)
-	case ';':
-		tok = newToken(SEMICOLON, l.ch, line, column)
-	case ',':
-		tok = newToken(COMMA, l.ch, line, column)
-	case '(':
-		tok = newToken(LPAREN, l.ch, line, column)
-	case ')':
-		tok = newToken(RPAREN, l.ch, line, column)
-	case '{':
-		tok = newToken(LBRACE, l.ch, line, column)
-	case '}':
-		tok = newToken(RBRACE, l.ch, line, column)
-	case '.':
-		tok = newToken(DOT, l.ch, line, column)
-	case '#':
-		if isHexDigit(l.peekChar()) {
-			tok = l.readHexColor()
-			return tok
-		} else {
-			tok = newToken(HASH, l.ch, line, column)
-		}
-	case '&':
-		tok = newToken(AMPERSAND, l.ch, line, column)
-	case '[':
-		tok = newToken(LBRACKET, l.ch, line, column)
-	case ']':
-		tok = newToken(RBRACKET, l.ch, line, column)
-	case '=':
-		tok = newToken(EQUALS, l.ch, line, column)
-	case '@':
-		tok = newToken(AT, l.ch, line, column)
-	case '*':
-		tok = newToken(ASTERISK, l.ch, line, column)
-	case '+':
-		tok = newToken(PLUS, l.ch, line, column)
-	case '-':
-		if l.peekChar() == '-' {
-			// This is a custom property
-			tok.Type = IDENT
-			tok.Literal = l.readCustomProperty()
-			tok.Line = line
-			tok.Column = column
-			l.lastToken = tok.Type
-			return tok
-		} else if isDigit(l.peekChar()) {
-			// If the next character is a digit, this is a negative number
-			tok.Type = NUMBER
-			tok.Literal = l.readNumber()
-			tok.Line = line
-			tok.Column = column
-		} else if isLetter(l.peekChar()) || l.peekChar() == '_' {
-			// This is an identifier starting with a hyphen
-			tok.Type = IDENT
-			tok.Literal = l.readIdentifier()
-		} else {
-			// Otherwise, it's the minus operator
-			tok = newToken(MINUS, l.ch, line, column)
-		}
-	case '>':
-		tok = newToken(GREATER, l.ch, line, column)
-	case '~':
-		tok = newToken(TILDE, l.ch, line, column)
-	case '|':
-		tok = newToken(PIPE, l.ch, line, column)
-	case '^':
-		tok = newToken(CARET, l.ch, line, column)
-	case '$':
-		tok = newToken(DOLLAR, l.ch, line, column)
-	case '%':
-		if l.lastToken == NUMBER {
-			tok = newToken(UNIT, l.ch, line, column)
-		} else {
-			tok = newToken(ILLEGAL, l.ch, line, column)
-		}
-	case '/':
-		if l.peekChar() == '*' {
-			tok.Type = COMMENT
-			tok.Literal = l.readComment()
-			tok.Line = line
-			tok.Column = column
-			l.lastToken = tok.Type
-			return tok
-		} else {
-			tok = newToken(DIVIDE, l.ch, line, column)
-		}
-	case '"', '\'':
-		tok.Type = STRING
-		tok.Literal = l.readString(l.ch)
-		tok.Line = line
-		tok.Column = column
-		l.lastToken = tok.Type
-		return tok
-	case '!':
-		if l.peekString("important") {
-			tok.Type = IMPORTANT
-			tok.Literal = "!important"
-			tok.Line = line
-			tok.Column = column
-			for range "important" {
-				l.readChar()
-			}
-		} else {
-			tok = newToken(ILLEGAL, l.ch, line, column)
-		}
-	case 0:
-		tok.Literal = ""
-		tok.Type = EOF
-		tok.Line = line
-		tok.Column = column
-	default:
-		if isLetter(l.ch) {
-			tok.Literal = l.readIdentifier()
-			if l.lastToken == NUMBER && isUnit(tok.Literal) {
-				tok.Type = UNIT
-			} else {
-				tok.Type = IDENT
-			}
-			tok.Line = line
-			tok.Column = column
-			l.lastToken = tok.Type
-			return tok
-		} else if isDigit(l.ch) {
-			tok.Type = NUMBER
-			tok.Literal = l.readNumber()
-			tok.Line = line
-			tok.Column = column
-			l.lastToken = tok.Type
-			return tok
-		} else {
-			tok = newToken(ILLEGAL, l.ch, line, column)
-		}
+	// If it's a valid hex color length and the next character isn't a valid identifier part,
+	// or we've reached the end of the input, it's a color
+	if (colorLength == 3 || colorLength == 6) &&
+		(!isIdentPart(l.ch) || l.ch == 0) {
+		return COLOR, value.String()
 	}
-	l.readChar()
-	l.lastToken = tok.Type
-	return tok
-}
 
-func newToken(tokenType TokenType, ch rune, line int, column int) Token {
-	return Token{Type: tokenType, Literal: string(ch), Line: line, Column: column}
-}
+	// If it's not a valid color, treat it as a selector
+	// Reset the lexer to just after the '#'
+	l.position -= colorLength
+	l.readPosition = l.position + 1
 
-func (l *Lexer) readString(delimiter rune) string {
-	var str strings.Builder
-	l.readChar()
-
-	for l.ch != delimiter {
-		if l.ch == 0 || l.ch == '\n' {
-			break
-		}
-
-		if l.ch == '\\' && l.peekChar() == delimiter {
+	// Read the selector
+	for isIdentPart(l.ch) || l.ch == '-' || l.ch == ':' {
+		if l.ch == '\\' {
+			value.WriteString(l.handleEscapedChar())
+		} else {
+			value.WriteRune(l.ch)
 			l.readChar()
-			str.WriteRune(l.ch)
-			l.readChar()
-			continue
 		}
-
-		str.WriteRune(l.ch)
+		value.WriteRune(l.ch)
 		l.readChar()
 	}
 
-	l.readChar()
-	return str.String()
+	// If we've only read the '#', it's invalid
+	if len(value.String()) == 1 {
+		return ILLEGAL, value.String()
+	}
+
+	return SELECTOR, value.String()
 }
 
-func (l *Lexer) readIdentifier() string {
-    var ident strings.Builder
-    ident.WriteRune(l.ch) // Write the first character (which could be '-')
-    l.readChar() // Move to the next character
+func (l *Lexer) readClassSelector() (TokenType, string) {
+	var selector strings.Builder
+	selector.WriteRune('.')
 
-    // Read subsequent characters
-    for isIdentPart(l.ch) || l.ch == '\\' {
-        if l.ch == '\\' {
-            l.readEscapedOrRune(&ident)
-        } else {
-            ident.WriteRune(l.ch)
-            l.readChar()
-        }
-    }
-
-    return ident.String()
-}
-
-func (l *Lexer) readEscapedOrRune(builder *strings.Builder) {
-	if l.ch == '\\' {
-		l.readChar() // Consume backslash
-		if isHexDigit(l.ch) {
-			// Unicode escape sequence
-			hexValue := l.readHexEscape()
-			if r, err := strconv.ParseInt(hexValue, 16, 32); err == nil {
-				builder.WriteRune(rune(r))
-			} else {
-				// Invalid hex escape, write as is
-				builder.WriteRune('\\')
-				builder.WriteString(hexValue)
-			}
-		} else if l.ch == '\n' {
-			// Escaped newline, ignore
-			l.readChar()
+	for isIdentPart(l.ch) || l.ch == '-' || l.ch == ':' {
+		if l.ch == '\\' {
+			selector.WriteString(l.handleEscapedChar())
 		} else {
-			// Other escaped character
-			builder.WriteRune(l.ch)
+			selector.WriteRune(l.ch)
 			l.readChar()
 		}
-	} else {
-		builder.WriteRune(l.ch)
-		l.readChar()
 	}
-}
 
-func (l *Lexer) readHexEscape() string {
-	var hexValue strings.Builder
-	for i := 0; i < 6 && isHexDigit(l.ch); i++ {
-		hexValue.WriteRune(l.ch)
-		l.readChar()
-	}
-	// Consume one whitespace after hex digits if present
-	if isWhitespace(l.ch) {
-		l.readChar()
-	}
-	return hexValue.String()
-}
-
-func isWhitespace(ch rune) bool {
-	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
-}
-
-func isIdentStart(ch rune) bool {
-	return unicode.IsLetter(ch) || ch == '_' || ch >= 0x80
-}
-
-func isIdentPart(ch rune) bool {
-	return isIdentStart(ch) || unicode.IsDigit(ch) || ch == '-'
+	return SELECTOR, selector.String()
 }
 
 func (l *Lexer) skipWhitespace() {
-	for unicode.IsSpace(l.ch) {
+	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
 		l.readChar()
 	}
+}
+
+func (l *Lexer) peekString(s string) bool {
+	for _, r := range s {
+		if l.peekChar() != r {
+			return false
+		}
+		l.readChar()
+	}
+	return true
+}
+
+func (l *Lexer) newToken(tok *Token, tokenType TokenType, ch rune) {
+	tok.Type = tokenType
+	tok.Literal = string(ch)
+}
+
+func (l *Lexer) handleEscapedChar() string {
+	l.readChar() // Consume the backslash
+
+	if l.ch == 0 {
+		return "\\" // Return backslash if it's at the end of input
+	}
+
+	if l.ch == '\n' {
+		return "" // Ignore escaped newline
+	}
+
+	if isHexDigit(l.ch) {
+		// Handle unicode escape
+		var hexString strings.Builder
+		for i := 0; i < 6 && isHexDigit(l.ch); i++ {
+			hexString.WriteRune(l.ch)
+			l.readChar()
+		}
+
+		// Convert hex to rune
+		if code, err := strconv.ParseInt(hexString.String(), 16, 32); err == nil {
+			// Consume one whitespace after hex digits if present
+			if unicode.IsSpace(l.ch) {
+				l.readChar()
+			}
+			return string(rune(code))
+		}
+		// If parsing fails, return the original sequence
+		return "\\" + hexString.String()
+	}
+
+	// For any other character, just return it
+	char := "\\" + string(l.ch)
+	l.readChar()
+	return char
 }
 
 func isLetter(ch rune) bool {
-	return unicode.IsLetter(ch) || ch == '_' || ch == '-' ||
-		(ch >= '\u0080' && ch != '\uFFFD' && !unicode.IsDigit(ch))
-}
-
-func (l *Lexer) readNumber() string {
-	var num strings.Builder
-	dotCount := 0
-
-	for isDigit(l.ch) || l.ch == '.' {
-		if l.ch == '.' {
-			dotCount++
-			if dotCount > 1 {
-				break // More than one dot is not allowed in a number
-			}
-		}
-		num.WriteRune(l.ch)
-		l.readChar()
-	}
-
-	return num.String()
+	return 'a' <= ch && ch <= 'z' || 'A' <= ch && ch <= 'Z' || ch == '_' || ch >= 0x80 && ch != 0
 }
 
 func isDigit(ch rune) bool {
-	return unicode.IsDigit(ch)
+	return '0' <= ch && ch <= '9'
 }
 
-func (l *Lexer) readHexColor() Token {
-	var color strings.Builder
-	startLine, startColumn := l.line, l.column
-	color.WriteRune('#')
-	l.readChar() // consume the '#'
+func isIdentStart(ch rune) bool {
+	return isLetter(ch) || ch == '_' || ch >= 0x80 || ch == '\\'
+}
 
-	digitCount := 0
-	for isHexDigit(l.ch) {
-		color.WriteRune(l.ch)
-		l.readChar()
-		digitCount++
-		if digitCount == 8 {
-			break
-		}
-	}
-
-	if digitCount == 3 || digitCount == 6 || digitCount == 4 || digitCount == 8 {
-		return Token{Type: COLOR, Literal: color.String(), Line: startLine, Column: startColumn}
-	} else {
-		return Token{Type: ILLEGAL, Literal: color.String(), Line: startLine, Column: startColumn}
-	}
+func isIdentPart(ch rune) bool {
+	return isIdentStart(ch) || isDigit(ch) || ch == '-'
 }
 
 func isHexDigit(ch rune) bool {
-	return unicode.IsDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+	return isDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
 }
 
-func (l *Lexer) readCustomProperty() string {
-	var prop strings.Builder
-	// We're already on the first '-', so start by writing it
-	prop.WriteRune(l.ch)
-	l.readChar() // Move to the second '-'
-
-	// Write the second '-'
-	if l.ch == '-' {
-		prop.WriteRune(l.ch)
-		l.readChar() // Move to the first character after '--'
-	} else {
-		// If there's no second '-', this isn't a custom property
-		return prop.String()
-	}
-
-	// Read the rest of the custom property name
-	for isIdentPart(l.ch) || l.ch == '-' {
-		prop.WriteRune(l.ch)
-		l.readChar()
-	}
-
-	return prop.String()
+func isWhitespace(ch rune) bool {
+    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
 }

@@ -11,10 +11,13 @@ const (
 	COMMENT   = "COMMENT"
 	IDENT     = "IDENT"
 	NUMBER    = "NUMBER"
-	UNIT      = "UNIT"
 	STRING    = "STRING"
+
+    // CSS Specifics
+    SELECTOR  = "SELECTOR"
     COLOR     = "COLOR"
 	IMPORTANT = "IMPORTANT"
+	UNIT      = "UNIT"
 
 	// Symbols and operators
 	COLON     = ":"
