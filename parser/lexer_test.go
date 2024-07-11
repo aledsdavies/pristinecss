@@ -28,8 +28,7 @@ func TestPositiveCases(t *testing.T) {
 			name:  "Media Query",
 			input: "@media screen and (max-width: 600px) { body { font-size: 14px; } }",
 			expected: []parser.Token{
-				{Type: parser.AT, Literal: []rune("@")},
-				{Type: parser.IDENT, Literal: []rune("media")},
+				{Type: parser.AT_RULE, Literal: []rune("@media")},
 				{Type: parser.IDENT, Literal: []rune("screen")},
 				{Type: parser.IDENT, Literal: []rune("and")},
 				{Type: parser.LPAREN, Literal: []rune("(")},
@@ -67,6 +66,65 @@ func TestPositiveCases(t *testing.T) {
 			},
 		},
 		{
+			name: "Handle Important",
+			input: `main { color: #ff0000 !important; }
+p { margin: 10px ! important; }
+div { padding: 5px !   important; }
+span { font-weight: bold !
+important; }
+.custom { border: 1px solid black!important }`,
+			expected: []parser.Token{
+				{Type: parser.SELECTOR, Literal: []rune("main")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("color")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.COLOR, Literal: []rune("#ff0000")},
+				{Type: parser.IMPORTANT, Literal: []rune("!important")},
+				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+
+				{Type: parser.SELECTOR, Literal: []rune("p")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("margin")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.NUMBER, Literal: []rune("10")},
+				{Type: parser.UNIT, Literal: []rune("px")},
+				{Type: parser.IMPORTANT, Literal: []rune("! important")},
+				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+
+				{Type: parser.SELECTOR, Literal: []rune("div")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("padding")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.NUMBER, Literal: []rune("5")},
+				{Type: parser.UNIT, Literal: []rune("px")},
+                {Type: parser.IMPORTANT, Literal: []rune("!   important")},
+				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+
+				{Type: parser.SELECTOR, Literal: []rune("span")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("font-weight")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.IDENT, Literal: []rune("bold")},
+				{Type: parser.IMPORTANT, Literal: []rune("!\nimportant")},
+				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+
+				{Type: parser.SELECTOR, Literal: []rune(".custom")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("border")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.NUMBER, Literal: []rune("1")},
+				{Type: parser.UNIT, Literal: []rune("px")},
+				{Type: parser.IDENT, Literal: []rune("solid")},
+				{Type: parser.IDENT, Literal: []rune("black")},
+				{Type: parser.IMPORTANT, Literal: []rune("!important")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+			},
+		},
+		{
 			name:  "Attribute Selector",
 			input: "a[href^=\"https://\"] { color: green; }",
 			expected: []parser.Token{
@@ -83,8 +141,7 @@ func TestPositiveCases(t *testing.T) {
 			name:  "Keyframes",
 			input: "@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }",
 			expected: []parser.Token{
-				{Type: parser.AT, Literal: []rune("@")},
-				{Type: parser.IDENT, Literal: []rune("keyframes")},
+				{Type: parser.AT_RULE, Literal: []rune("@keyframes")},
 				{Type: parser.IDENT, Literal: []rune("fadeIn")},
 				{Type: parser.LBRACE, Literal: []rune("{")},
 				{Type: parser.NUMBER, Literal: []rune("0")},
@@ -372,8 +429,7 @@ func TestPositiveCases(t *testing.T) {
 				{Type: parser.RBRACE, Literal: []rune("}")},
 
 				{Type: parser.COMMENT, Literal: []rune(" Media query hack ")},
-				{Type: parser.AT, Literal: []rune("@")},
-				{Type: parser.IDENT, Literal: []rune("media")},
+				{Type: parser.AT_RULE, Literal: []rune("@media")},
 				{Type: parser.IDENT, Literal: []rune("screen")},
 				{Type: parser.IDENT, Literal: []rune("and")},
 				{Type: parser.LPAREN, Literal: []rune("(")},
@@ -495,40 +551,62 @@ func TestIllegalCases(t *testing.T) {
 	}{
 		{
 			name:  "Invalid hex color",
-			input: "color: #1234ZZ;",
+			input: ".invalid { color: #1234ZZ; }",
 			expected: []parser.Token{
+				{Type: parser.SELECTOR, Literal: []rune(".invalid")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
 				{Type: parser.IDENT, Literal: []rune("color")},
 				{Type: parser.COLON, Literal: []rune(":")},
-				{Type: parser.COLOR, Literal: []rune("#1234")},
-				{Type: parser.IDENT, Literal: []rune("ZZ")},
+				{Type: parser.SELECTOR, Literal: []rune("#1234ZZ")},
 				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
 			},
 		},
 		{
 			name:  "Invalid unit combination",
-			input: "width: 50+px;",
+			input: ".invalid-unit { width: 50+px; }",
 			expected: []parser.Token{
+				{Type: parser.SELECTOR, Literal: []rune(".invalid-unit")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
 				{Type: parser.IDENT, Literal: []rune("width")},
 				{Type: parser.COLON, Literal: []rune(":")},
 				{Type: parser.NUMBER, Literal: []rune("50")},
 				{Type: parser.PLUS, Literal: []rune("+")},
-				{Type: parser.IDENT, Literal: []rune("px")},
+				{Type: parser.UNIT, Literal: []rune("px")},
 				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
 			},
 		},
 		{
 			name:  "Invalid percentage",
-			input: "height: 100vh%;",
+			input: ".invalid-percentage { height: 100vh%; }",
 			expected: []parser.Token{
+				{Type: parser.SELECTOR, Literal: []rune(".invalid-percentage")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
 				{Type: parser.IDENT, Literal: []rune("height")},
 				{Type: parser.COLON, Literal: []rune(":")},
 				{Type: parser.NUMBER, Literal: []rune("100")},
 				{Type: parser.UNIT, Literal: []rune("vh")},
 				{Type: parser.ILLEGAL, Literal: []rune("%")},
 				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
 			},
 		},
-		// Add more test cases here
+		// You can add more test cases here
+		{
+			name:  "Invalid property",
+			input: ".invalid-property { colo r: red; }",
+			expected: []parser.Token{
+				{Type: parser.SELECTOR, Literal: []rune(".invalid-property")},
+				{Type: parser.LBRACE, Literal: []rune("{")},
+				{Type: parser.IDENT, Literal: []rune("colo")},
+				{Type: parser.IDENT, Literal: []rune("r")},
+				{Type: parser.COLON, Literal: []rune(":")},
+				{Type: parser.IDENT, Literal: []rune("red")},
+				{Type: parser.SEMICOLON, Literal: []rune(";")},
+				{Type: parser.RBRACE, Literal: []rune("}")},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -539,9 +617,8 @@ func TestIllegalCases(t *testing.T) {
 				if got.Type != expected.Type {
 					t.Errorf("Token %d: expected type %v, got %v", i, expected.Type, got.Type)
 				}
-
 				if !runesEqual(got.Literal, expected.Literal) {
-					t.Errorf("Token %d: expected literal %q, got %q", i, expected.Literal, got.Literal)
+					t.Errorf("Token %d: expected literal %q, got %q", i, string(expected.Literal), string(got.Literal))
 				}
 			}
 			// Check for unexpected additional tokens
@@ -598,7 +675,7 @@ func TestFrameworks(t *testing.T) {
 			for tok := l.NextToken(); tok.Type != parser.EOF; tok = l.NextToken() {
 				if tok.Type == parser.ILLEGAL {
 					illegalCount++
-					t.Errorf("Found an ILLEGAL token: %v", tok)
+					t.Errorf("Found an ILLEGAL token: %v %s  %d:%d", tok.Type, string(tok.Literal), tok.Line, tok.Column)
 				}
 			}
 

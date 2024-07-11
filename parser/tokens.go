@@ -10,6 +10,7 @@ const (
 	IDENT   = "IDENT"
 	NUMBER  = "NUMBER"
 	STRING  = "STRING"
+	AT_RULE = "AT_RULE"
 
 	// CSS Specifics
 	SELECTOR  = "SELECTOR"
@@ -23,7 +24,6 @@ const (
 	COMMA     = ","
 	DOT       = "."
 	HASH      = "#"
-	AT        = "@"
 	ASTERISK  = "*"
 	PLUS      = "+"
 	MINUS     = "-"
@@ -47,52 +47,36 @@ const (
 
 type TokenType string
 
-const initialBufferSize = 2
+const initialBufferSize = 50
 
 type Token struct {
-    Type    TokenType
-    Literal []rune
-    buffer  []rune
-    Line    int
-    Column  int
+	Type    TokenType
+	Literal []rune
+	buffer  []rune
+	Line    int
+	Column  int
 }
 
 func NewToken() *Token {
-    return &Token{
-        buffer: make([]rune, initialBufferSize),
-    }
-}
-
-func (t *Token) SetLiteral(literal []rune) {
-    needed := len(literal)
-    if cap(t.buffer) < needed {
-        // Double the capacity until it's enough
-        newCap := cap(t.buffer)
-        for newCap < needed {
-            newCap *= 2
-        }
-        newBuffer := make([]rune, newCap)
-        copy(newBuffer, t.buffer)
-        t.buffer = newBuffer
-    }
-    t.Literal = t.buffer[:needed]
-    copy(t.Literal, literal)
+	return &Token{
+		buffer: make([]rune, initialBufferSize),
+	}
 }
 
 func (t *Token) AppendLiteral(b rune) {
-    if len(t.Literal) == cap(t.buffer) {
-        newBuffer := make([]rune, cap(t.buffer)*2)
-        copy(newBuffer, t.buffer)
-        t.buffer = newBuffer
-    }
-    t.Literal = append(t.Literal, b)
+	if len(t.Literal) == cap(t.buffer) {
+		newBuffer := make([]rune, cap(t.buffer)*2)
+		copy(newBuffer, t.buffer)
+		t.buffer = newBuffer
+	}
+	t.Literal = append(t.Literal, b)
 }
 
 func (t *Token) Reset() {
-    t.Type = ILLEGAL
-    t.Literal = t.Literal[:0]
-    t.Line = 0
-    t.Column = 0
+	t.Type = ILLEGAL
+	t.Literal = t.Literal[:0]
+	t.Line = 0
+	t.Column = 0
 }
 
 var keywords = map[string]TokenType{}
