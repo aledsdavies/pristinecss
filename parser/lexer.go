@@ -6,14 +6,17 @@ import (
 	"log"
 )
 
-// Constant Sequences
-var (
-	important string = "important"
+const (
+	important           = "important"
+	readAheadBufferSize = 64
+	invalidRune         = '\uFFFD' // Unicode replacement character
 )
 
 type Lexer struct {
 	input              *bufio.Reader
 	readAheadBuf       []rune
+	readAheadStart     int
+	readAheadEnd       int
 	ch                 rune
 	position           int
 	readPosition       int
@@ -33,10 +36,15 @@ type Lexer struct {
 func NewLexer(input io.Reader) *Lexer {
 	l := &Lexer{
 		input:        bufio.NewReader(input),
-		readAheadBuf: make([]rune, 0, 64),
+		readAheadBuf: make([]rune, readAheadBufferSize),
 		line:         1,
 		column:       0,
 		tokenBuffer:  make([]*Token, 1),
+	}
+
+	// Initialize readAheadBuf with invalid runes
+	for i := range l.readAheadBuf {
+		l.readAheadBuf[i] = invalidRune
 	}
 
 	for i := range l.tokenBuffer {
@@ -169,9 +177,10 @@ func (l *Lexer) NextToken() Token {
 }
 
 func (l *Lexer) readChar() {
-	if len(l.readAheadBuf) > 0 {
-		l.ch = l.readAheadBuf[0]
-		l.readAheadBuf = l.readAheadBuf[1:]
+	if l.readAheadStart != l.readAheadEnd {
+		l.ch = l.readAheadBuf[l.readAheadStart]
+		l.readAheadBuf[l.readAheadStart] = invalidRune
+		l.readAheadStart = (l.readAheadStart + 1) % readAheadBufferSize
 	} else {
 		var err error
 		l.ch, _, err = l.input.ReadRune()
@@ -192,14 +201,15 @@ func (l *Lexer) readChar() {
 }
 
 func (l *Lexer) peekChar() rune {
-	if len(l.readAheadBuf) > 0 {
-		return l.readAheadBuf[0]
+	if l.readAheadStart != l.readAheadEnd {
+		return l.readAheadBuf[l.readAheadStart]
 	}
 	ch, _, err := l.input.ReadRune()
 	if err != nil {
 		return 0
 	}
-	l.readAheadBuf = append(l.readAheadBuf, ch)
+	l.readAheadBuf[l.readAheadEnd] = ch
+	l.readAheadEnd = (l.readAheadEnd + 1) % readAheadBufferSize
 	return ch
 }
 
@@ -207,21 +217,23 @@ func (l *Lexer) peekCharN(n int) rune {
 	if n < 1 {
 		return l.ch
 	}
-	for len(l.readAheadBuf) < n {
+	for (l.readAheadEnd-l.readAheadStart+readAheadBufferSize)%readAheadBufferSize < n {
 		ch, _, err := l.input.ReadRune()
 		if err != nil {
 			break
 		}
-		l.readAheadBuf = append(l.readAheadBuf, ch)
+		l.readAheadBuf[l.readAheadEnd] = ch
+		l.readAheadEnd = (l.readAheadEnd + 1) % readAheadBufferSize
 	}
-	if n-1 < len(l.readAheadBuf) {
-		return l.readAheadBuf[n-1]
+	if n <= (l.readAheadEnd-l.readAheadStart+readAheadBufferSize)%readAheadBufferSize {
+		return l.readAheadBuf[(l.readAheadStart+n-1)%readAheadBufferSize]
 	}
 	return 0
 }
 
-func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) bool {
+func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) (int, bool) {
 	index := 0
+
 	if skipPrefixWhitespace {
 		// Skip leading whitespace
 		for {
@@ -236,12 +248,12 @@ func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) bool {
 	for _, expectedCh := range s {
 		ch := l.peekCharN(index + 1)
 		if ch != expectedCh {
-			return false
+			return index, false
 		}
 		index++
 	}
 
-	return true
+	return index, true
 }
 
 func (l *Lexer) skipWhitespace() {
@@ -284,10 +296,10 @@ func (l *Lexer) handleSlash(tok *Token) {
 
 func (l *Lexer) handleImportant(tok *Token) {
 	tok.AppendLiteral('!')
-	if l.peekString(important, true) {
+	peekedLength, match := l.peekString(important, true)
+	if match {
 		tok.Type = IMPORTANT
-		// Read all characters from the read-ahead buffer
-		for range l.readAheadBuf {
+		for i := 0; i < peekedLength; i++ {
 			l.readChar()
 			tok.AppendLiteral(l.ch)
 		}
