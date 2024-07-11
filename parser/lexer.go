@@ -8,15 +8,14 @@ import (
 
 const (
 	important           = "important"
-	readAheadBufferSize = 64
+	readAheadBufferSize = 64 // Must be a power of 2
+	bufferMask          = readAheadBufferSize - 1
 	invalidRune         = '\uFFFD' // Unicode replacement character
 )
 
 type Lexer struct {
 	input              *bufio.Reader
-	readAheadBuf       []rune
-	readAheadStart     int
-	readAheadEnd       int
+	buffer             *CircularBuffer
 	ch                 rune
 	position           int
 	readPosition       int
@@ -33,18 +32,54 @@ type Lexer struct {
 	logger             *log.Logger
 }
 
+type CircularBuffer struct {
+	buf   []rune
+	start int
+	end   int
+}
+
+func NewCircularBuffer() *CircularBuffer {
+	return &CircularBuffer{
+		buf: make([]rune, readAheadBufferSize),
+	}
+}
+
+func (cb *CircularBuffer) Push(r rune) {
+	cb.buf[cb.end] = r
+	cb.end = (cb.end + 1) & bufferMask
+	if cb.end == cb.start {
+		cb.start = (cb.start + 1) & bufferMask
+	}
+}
+
+func (cb *CircularBuffer) Pop() rune {
+	if cb.start == cb.end {
+		return invalidRune
+	}
+	r := cb.buf[cb.start]
+	cb.buf[cb.start] = invalidRune
+	cb.start = (cb.start + 1) & bufferMask
+	return r
+}
+
+func (cb *CircularBuffer) Peek(n int) rune {
+	if n <= 0 || n > cb.Size() {
+		return invalidRune
+	}
+	return cb.buf[(cb.start+n-1)&bufferMask]
+}
+
+func (cb *CircularBuffer) Size() int {
+	return (cb.end - cb.start) & bufferMask
+}
+
 func NewLexer(input io.Reader) *Lexer {
 	l := &Lexer{
 		input:        bufio.NewReader(input),
-		readAheadBuf: make([]rune, readAheadBufferSize),
+		buffer:       NewCircularBuffer(),
 		line:         1,
 		column:       0,
 		tokenBuffer:  make([]*Token, 1),
-	}
-
-	// Initialize readAheadBuf with invalid runes
-	for i := range l.readAheadBuf {
-		l.readAheadBuf[i] = invalidRune
 	}
 
 	for i := range l.tokenBuffer {
@@ -54,6 +89,87 @@ func NewLexer(input io.Reader) *Lexer {
 	l.readChar()
 	return l
 }
+
+func (l *Lexer) readChar() {
+	if l.buffer.Size() > 0 {
+		l.ch = l.buffer.Pop()
+	} else {
+		var err error
+		l.ch, _, err = l.input.ReadRune()
+		if err != nil {
+			l.ch = 0
+		}
+	}
+
+	l.position = l.readPosition
+	l.readPosition++
+
+	if l.ch == '\n' {
+		l.line++
+		l.column = 0
+	} else {
+		l.column++
+	}
+}
+
+func (l *Lexer) peekChar() rune {
+	if l.buffer.Size() > 0 {
+		return l.buffer.Peek(1)
+	}
+	ch, _, _ := l.input.ReadRune() // Ignore error for speed
+	if ch != 0 {
+		l.buffer.Push(ch)
+	}
+	return ch
+}
+
+func (l *Lexer) peekCharN(n int) rune {
+	currentSize := l.buffer.Size()
+	if n <= currentSize {
+		return l.buffer.Peek(n)
+	}
+
+	// Read additional characters into the buffer
+	for i := 0; i < n - currentSize; i++ {
+		ch, _, err := l.input.ReadRune()
+		if err != nil {
+			break
+		}
+		l.buffer.Push(ch)
+	}
+
+	if n <= l.buffer.Size() {
+		return l.buffer.Peek(n)
+	}
+	return 0 // Not enough characters available
+}
+
+
+func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) (int, bool) {
+	index := 0
+
+	if skipPrefixWhitespace {
+		// Skip leading whitespace
+		for {
+			ch := l.peekCharN(index + 1)
+			if ch == 0 || !isWhitespace(ch) {
+				break
+			}
+			index++
+		}
+	}
+
+	for _, expectedCh := range s {
+		ch := l.peekCharN(index + 1)
+		if ch != expectedCh {
+			return index, false
+		}
+		index++
+	}
+
+	return index, true
+}
+
 
 func (l *Lexer) getNextToken() *Token {
 	if l.currentToken >= len(l.tokenBuffer) {
@@ -174,86 +290,6 @@ func (l *Lexer) NextToken() Token {
 	l.lastToken = tok.Type
 
 	return *tok
-}
-
-func (l *Lexer) readChar() {
-	if l.readAheadStart != l.readAheadEnd {
-		l.ch = l.readAheadBuf[l.readAheadStart]
-		l.readAheadBuf[l.readAheadStart] = invalidRune
-		l.readAheadStart = (l.readAheadStart + 1) % readAheadBufferSize
-	} else {
-		var err error
-		l.ch, _, err = l.input.ReadRune()
-		if err != nil {
-			l.ch = 0
-		}
-	}
-
-	l.position = l.readPosition
-	l.readPosition++
-
-	if l.ch == '\n' {
-		l.line++
-		l.column = 0
-	} else {
-		l.column++
-	}
-}
-
-func (l *Lexer) peekChar() rune {
-	if l.readAheadStart != l.readAheadEnd {
-		return l.readAheadBuf[l.readAheadStart]
-	}
-	ch, _, err := l.input.ReadRune()
-	if err != nil {
-		return 0
-	}
-	l.readAheadBuf[l.readAheadEnd] = ch
-	l.readAheadEnd = (l.readAheadEnd + 1) % readAheadBufferSize
-	return ch
-}
-
-func (l *Lexer) peekCharN(n int) rune {
-	if n < 1 {
-		return l.ch
-	}
-	for (l.readAheadEnd-l.readAheadStart+readAheadBufferSize)%readAheadBufferSize < n {
-		ch, _, err := l.input.ReadRune()
-		if err != nil {
-			break
-		}
-		l.readAheadBuf[l.readAheadEnd] = ch
-		l.readAheadEnd = (l.readAheadEnd + 1) % readAheadBufferSize
-	}
-	if n <= (l.readAheadEnd-l.readAheadStart+readAheadBufferSize)%readAheadBufferSize {
-		return l.readAheadBuf[(l.readAheadStart+n-1)%readAheadBufferSize]
-	}
-	return 0
-}
-
-func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) (int, bool) {
-	index := 0
-
-	if skipPrefixWhitespace {
-		// Skip leading whitespace
-		for {
-			ch := l.peekCharN(index + 1)
-			if ch == 0 || !isWhitespace(ch) {
-				break
-			}
-			index++
-		}
-	}
-
-	for _, expectedCh := range s {
-		ch := l.peekCharN(index + 1)
-		if ch != expectedCh {
-			return index, false
-		}
-		index++
-	}
-
-	return index, true
 }
 
 func (l *Lexer) skipWhitespace() {
