@@ -10,13 +10,15 @@ const (
 	IDENT   = "IDENT"
 	NUMBER  = "NUMBER"
 	STRING  = "STRING"
-	AT_RULE = "AT_RULE"
 
 	// CSS Specifics
-	SELECTOR  = "SELECTOR"
-	COLOR     = "COLOR"
-	IMPORTANT = "IMPORTANT"
-	UNIT      = "UNIT"
+	AT_RULE        = "AT_RULE"
+	SELECTOR       = "SELECTOR"
+	PSEUDO_CLASS   = "PSEUDO_CLASS"
+	PSEUDO_ELEMENT = "PSEUDO_ELEMENT"
+	COLOR          = "COLOR"
+	IMPORTANT      = "IMPORTANT"
+	UNIT           = "UNIT"
 
 	// Symbols and operators
 	COLON     = ":"

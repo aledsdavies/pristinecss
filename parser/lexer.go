@@ -75,11 +75,11 @@ func (cb *CircularBuffer) Size() int {
 
 func NewLexer(input io.Reader) *Lexer {
 	l := &Lexer{
-		input:        bufio.NewReader(input),
-		buffer:       NewCircularBuffer(),
-		line:         1,
-		column:       0,
-		tokenBuffer:  make([]*Token, 1),
+		input:       bufio.NewReader(input),
+		buffer:      NewCircularBuffer(),
+		line:        1,
+		column:      0,
+		tokenBuffer: make([]*Token, 1),
 	}
 
 	for i := range l.tokenBuffer {
@@ -130,7 +130,7 @@ func (l *Lexer) peekCharN(n int) rune {
 	}
 
 	// Read additional characters into the buffer
-	for i := 0; i < n - currentSize; i++ {
+	for i := 0; i < n-currentSize; i++ {
 		ch, _, err := l.input.ReadRune()
 		if err != nil {
 			break
@@ -143,7 +143,6 @@ func (l *Lexer) peekCharN(n int) rune {
 	}
 	return 0 // Not enough characters available
 }
-
 
 func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) (int, bool) {
 	index := 0
@@ -169,7 +168,6 @@ func (l *Lexer) peekString(s string, skipPrefixWhitespace bool) (int, bool) {
 
 	return index, true
 }
-
 
 func (l *Lexer) getNextToken() *Token {
 	if l.currentToken >= len(l.tokenBuffer) {
@@ -228,8 +226,7 @@ func (l *Lexer) NextToken() Token {
 	case '@':
 		l.handleAt(tok)
 	case '*':
-		tok.Type = ASTERISK
-		tok.AppendLiteral(l.ch)
+		l.handleUniversalSelector(tok)
 	case '+':
 		tok.Type = PLUS
 		tok.AppendLiteral(l.ch)
@@ -257,9 +254,6 @@ func (l *Lexer) NextToken() Token {
 	case '!':
 		l.handleImportant(tok)
 	case ':':
-		if l.lastToken == IDENT {
-			l.assigning = true
-		}
 		l.handleColon(tok)
 	case '#':
 		l.handleHash(tok)
@@ -346,10 +340,24 @@ func (l *Lexer) handleImportant(tok *Token) {
 
 func (l *Lexer) handleColon(tok *Token) {
 	tok.AppendLiteral(l.ch)
-	if isIdentStart(l.peekChar()) {
-		l.readChar()
+
+	if l.lastToken == IDENT {
+		l.assigning = true
+		tok.Type = COLON
+		return
+	}
+
+	ch := l.peekChar()
+	if ch == ':' {
+        l.readChar()
+        tok.AppendLiteral(l.ch)
+        l.readChar()
 		l.readIdentifier(tok)
-		tok.Type = SELECTOR
+		tok.Type = PSEUDO_ELEMENT
+	} else if isIdentStart(ch) {
+        l.readChar()
+		l.readIdentifier(tok)
+		tok.Type = PSEUDO_CLASS
 	} else {
 		tok.Type = COLON
 	}
@@ -404,6 +412,22 @@ func (l *Lexer) handleDash(tok *Token) {
 	}
 }
 
+func (l *Lexer) handleUniversalSelector(tok *Token) {
+	tok.Type = SELECTOR
+	tok.AppendLiteral('*')
+
+	// Check if it's part of a more complex selector
+	for isIdentPart(l.peekChar()) || l.peekChar() == '.' || l.peekChar() == '#' || l.peekChar() == '[' {
+		l.readChar()
+		tok.AppendLiteral(l.ch)
+
+		if l.ch == '[' {
+			// Handle attribute selector
+			l.readAttributeSelector(tok)
+		}
+	}
+}
+
 func (l *Lexer) readString(tok *Token) {
 	delimiter := l.ch
 	tok.Type = STRING
@@ -443,7 +467,7 @@ func (l *Lexer) readIdentifier(tok *Token) {
 	tok.AppendLiteral(l.ch)
 	for {
 		next := l.peekChar()
-		if isIdentPart(next) || next == '-' || (next == ':' && l.braceLevel == 0 && l.bracketLevel == 0) {
+		if isIdentPart(next) || next == '-' {
 			l.readChar()
 			tok.AppendLiteral(l.ch)
 		} else if next == '\\' {
@@ -464,6 +488,25 @@ func (l *Lexer) readIdentifier(tok *Token) {
 		tok.Type = SELECTOR
 	} else {
 		tok.Type = IDENT
+	}
+}
+
+func (l *Lexer) readFunctionalPseudoClass(tok *Token) {
+	parenthesesCount := 1
+	l.readChar() // consume opening parenthesis
+	tok.AppendLiteral(l.ch)
+	for parenthesesCount > 0 {
+		l.readChar()
+		if l.ch == 0 { // EOF
+			break
+		}
+		tok.AppendLiteral(l.ch)
+		switch l.ch {
+		case '(':
+			parenthesesCount++
+		case ')':
+			parenthesesCount--
+		}
 	}
 }
 
