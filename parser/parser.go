@@ -1,108 +1,85 @@
 package parser
 
 import (
-	"bufio"
+	"fmt"
 	"io"
-	"strings"
 )
 
-type ParseResult struct {
-	StyleSheet  *StyleSheet
-	Errors []*ParseError
-	ContextInfo map[string]string
-}
-
-func (p *ParseResult) HasErrors() bool {
-    return len(p.Errors) > 1
-}
-
 type ParseError struct {
-	Type     string
-	Severity string
 	Message  string
 	Line     int
 	Column   int
-	Snippet  string
+	TokenLit string
 }
 
-type ContextInfo map[string]string
-
-func Parse(reader io.Reader, contextInfo ...ContextInfo) *ParseResult {
-	sheet := &StyleSheet{}
-	diags := []*ParseError{}
-
-	// Merge all context information
-	ctx := make(map[string]string)
-	for _, info := range contextInfo {
-		for key, value := range info {
-			ctx[key] = value
-		}
-	}
-
-    parseCSS(reader, sheet, diags)
-
-	return &ParseResult{
-		StyleSheet:  sheet,
-		Errors: diags,
-		ContextInfo: ctx,
-	}
+func (e ParseError) Error() string {
+	return fmt.Sprintf("line %d, column %d: %s (token: %s)", e.Line, e.Column, e.Message, e.TokenLit)
 }
 
+type Parser struct {
+	lexer      *lexer
+	token      Token
+	stylesheet *Stylesheet
+	errors     []ParseError
+}
 
-func parseCSS(reader io.Reader, sheet *StyleSheet, diags []*ParseError) {
-	scanner := bufio.NewScanner(reader)
-	var selector *Selector
-	var lineNum int
-	for scanner.Scan() {
-		lineNum++
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "/*") {
-			continue // Skip empty lines and comments
-		}
-		if strings.HasSuffix(line, "{") {
-			// Parse selector
-			selectorName := strings.TrimSpace(line[:len(line)-1])
-			selector = &Selector{
-				Type:         TypeElement,
-				Name:         selectorName,
-				Declarations: make(map[string]string),
-			}
-		} else if strings.HasSuffix(line, "}") {
-			// End of selector block
-			sheet.Rules = append(sheet.Rules, selector)
-			selector = nil
-		} else if selector != nil {
-			// Parse declaration
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) != 2 {
-				diags = append(diags, &ParseError{
-					Type:     "Syntax Error",
-					Severity: "Error",
-					Message:  "Invalid declaration",
-					Line:     lineNum,
-					Snippet:  line,
-				})
-				continue
-			}
-			prop := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(strings.TrimSuffix(parts[1], ";"))
-			selector.Declarations[prop] = val
-		} else {
-			diags = append(diags, &ParseError{
-				Type:     "Syntax Error",
-				Severity: "Error",
-				Message:  "Unexpected content outside of a selector block",
-				Line:     lineNum,
-				Snippet:  line,
-			})
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		diags = append(diags, &ParseError{
-			Type:     "IO Error",
-			Severity: "Error",
+func (p *Parser) addError(err error) {
+	parseErr, ok := err.(ParseError)
+	if !ok {
+		parseErr = ParseError{
 			Message:  err.Error(),
-		})
+			Line:     p.token.Line,
+			Column:   p.token.Column,
+			TokenLit: string(p.token.Literal),
+		}
 	}
+	p.errors = append(p.errors, parseErr)
+}
+
+func Parse(input io.Reader) (*Stylesheet, []ParseError) {
+	lexer := Read(input)
+	p := &Parser{
+		lexer:      lexer,
+		stylesheet: NewStylesheet(),
+	}
+
+	for p.token = p.lexer.NextToken(); p.token.Type != EOF; p.token = p.lexer.NextToken() {
+		p.parse()
+	}
+
+	return p.stylesheet, p.errors
+}
+
+func (p *Parser) parse() error {
+	switch p.stylesheet.Type() {
+	case NodeStylesheet:
+		p.parseStylesheet()
+	default:
+		// Ignore unknown tokens for now
+		return nil
+	}
+	return nil
+}
+
+func (p *Parser) parseStylesheet() {
+	switch p.token.Type {
+	case COMMENT:
+		comment := &Comment{Text: p.token.Literal}
+		p.stylesheet.Rules = append(p.stylesheet.Rules, comment)
+	case SELECTOR: // TODO handle combinator rules
+        selector := p.parseSelector()
+        if selector != nil {
+            p.stylesheet.Rules = append(p.stylesheet.Rules, selector)
+        }
+	default:
+		// Ignore unknown tokens for now
+	}
+}
+
+func (p *Parser) parseSelector() *Selector {
+	selector := &Selector{}
+	selectorValue := SelectorValue{Type: Element, Value: p.token.Literal}
+	selector.Selectors = append(selector.Selectors, selectorValue)
+
+	return selector
 }

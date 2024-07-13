@@ -1,61 +1,153 @@
-package parser_test
+package parser
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/aledsdavies/pristinecss/parser"
 	"github.com/google/go-cmp/cmp"
 )
 
-// TestParseStyleSheetFromFile tests CSS parsing from file paths.
-func TestParseStyleSheetFromFile(t *testing.T) {
+// Benchmark for parsing various CSS frameworks
+func BenchmarkParseFrameworks(b *testing.B) {
+	frameworks := []struct {
+		name string
+		path string
+	}{
+		{"Bootstrap", filepath.Join("..", "test-data", "frameworks", "bootstrap.css")},
+		{"Bulma", filepath.Join("..", "test-data", "frameworks", "bulma.css")},
+		{"Foundation", filepath.Join("..", "test-data", "frameworks", "foundation.css")},
+		{"Materialize", filepath.Join("..", "test-data", "frameworks", "materialize.css")},
+		{"Spectre", filepath.Join("..", "test-data", "frameworks", "spectre.css")},
+	}
+
+	for _, fw := range frameworks {
+		content, err := os.ReadFile(fw.path)
+		if err != nil {
+			b.Fatalf("Could not read the file %s: %v", fw.path, err)
+		}
+
+		b.Run(fw.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				reader := bytes.NewReader(content)
+				Parse(reader)
+			}
+		})
+	}
+}
+
+func TestParse(t *testing.T) {
 	tests := []struct {
 		name     string
-		filepath string
-		expected *parser.StyleSheet
+		input    string
+		expected *Stylesheet
 	}{
 		{
-			name:     "Can Parse Empty CSS File",
-			filepath: filepath.Join("..", "test-data", "empty.css"),
-			expected: &parser.StyleSheet{
+			name:  "Empty stylesheet",
+			input: "",
+			expected: &Stylesheet{
+				Rules: []Node{},
 			},
 		},
 		{
-			name:     "Can Parse Attribute Selectors",
-			filepath: filepath.Join("..", "test-data", "element_selector.css"),
-			expected: &parser.StyleSheet{
-				Rules: []parser.Node{
-					&parser.Selector{
-						Type:         parser.TypeElement,
-						Name:         "p",
-						Declarations: map[string]string{"color": "blue"},
+			name:  "Comment only",
+			input: "/* This is a comment */",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Comment{Text: []byte("/* This is a comment */")},
+				},
+			},
+		},
+		{
+			name:  "Simple selector without declarations",
+			input: "div { }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{{Type: Element, Value: []byte("div")}},
+						Rules:     []Node{},
 					},
 				},
 			},
 		},
-//003   class_selector.css
-//004   element_selector.css
-//005   id_selector.css
-//007   psudo_element_selector.css
+		{
+			name: "Simple CSS with declarations (ignored for now)",
+			input: `
+                body {
+                    color: red;
+                    font-size: 16px;
+                }
+            `,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{{Type: Element, Value: []byte("body")}},
+						Rules:     []Node{},
+					},
+				},
+			},
+		},
+		{
+			name:  "Multiple selectors",
+			input: "div, p { color: blue; }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{
+							{Type: Element, Value: []byte("div")},
+							{Type: Element, Value: []byte("p")},
+						},
+						Rules: []Node{},
+					},
+				},
+			},
+		},
+		{
+			name:  "Complex selectors",
+			input: ".class #id[attr] { margin: 10px; }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{
+							{Type: Class, Value: []byte(".class")},
+							{Type: ID, Value: []byte("#id")},
+							{Type: Attribute, Value: []byte("[attr]")},
+						},
+						Rules: []Node{},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := os.Open(tt.filepath)
-			if err != nil {
-				t.Fatalf("Failed to read file %s: %v", tt.filepath, err)
+			result, errors := Parse(strings.NewReader(tt.input))
+			if len(errors) > 0 {
+				t.Errorf("Unexpected errors: %v", errors)
 			}
-
-			parsedResult := parser.Parse(data)
-			if parsedResult.HasErrors() {
-				t.Fatalf("Parsing errors in test %s: %+v", tt.name, parsedResult.Errors)
-			}
-
-			if diff := cmp.Diff(tt.expected, parsedResult.StyleSheet); diff != "" {
-				t.Errorf("Test %s failed: (-want +got):\n%s", tt.name, diff)
-			}
+			diffStylesheet(t, tt.expected, result)
 		})
+	}
+}
+
+// Custom comparer function
+func stylesheetComparer() cmp.Option {
+	return cmp.Comparer(func(x, y *Stylesheet) bool {
+		return x.String() == y.String()
+	})
+}
+
+// Custom diff function
+func diffStylesheet(t *testing.T, expected, actual *Stylesheet) {
+	t.Helper()
+	diff := cmp.Diff(expected, actual, stylesheetComparer())
+	if diff != "" {
+		t.Errorf("CSS mismatch (-want +got):\n%s", diff)
 	}
 }

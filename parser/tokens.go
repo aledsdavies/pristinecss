@@ -12,31 +12,29 @@ const (
 	STRING  = "STRING"
 
 	// CSS Specifics
-	AT_RULE        = "AT_RULE"
-	SELECTOR       = "SELECTOR"
-	PSEUDO_CLASS   = "PSEUDO_CLASS"
-	PSEUDO_ELEMENT = "PSEUDO_ELEMENT"
-	COLOR          = "COLOR"
-	IMPORTANT      = "IMPORTANT"
-	UNIT           = "UNIT"
+	AT_RULE   = "AT_RULE"
+	SELECTOR  = "SELECTOR"
+	COLOR     = "COLOR"
 
 	// Symbols and operators
-	COLON     = ":"
-	SEMICOLON = ";"
-	COMMA     = ","
-	DOT       = "."
-	HASH      = "#"
-	ASTERISK  = "*"
-	PLUS      = "+"
-	MINUS     = "-"
-	DIVIDE    = "/"
-	GREATER   = ">"
-	TILDE     = "~"
-	EQUALS    = "="
-	PIPE      = "|"
-	CARET     = "^"
-	DOLLAR    = "$"
-	AMPERSAND = "&"
+	COLON       = ":"
+	SEMICOLON   = ";"
+	COMMA       = ","
+	DOT         = "."
+	HASH        = "#"
+	ASTERISK    = "*"
+	PLUS        = "+"
+	MINUS       = "-"
+	DIVIDE      = "/"
+	GREATER     = ">"
+	TILDE       = "~"
+	EQUALS      = "="
+	PIPE        = "|"
+	CARET       = "^"
+	PERCENTAGE  = "%"
+	DOLLAR      = "$"
+	AMPERSAND   = "&"
+	EXCLAMATION = "!"
 
 	// Brackets
 	LPAREN   = "("
@@ -49,34 +47,23 @@ const (
 
 type TokenType string
 
-const initialBufferSize = 50
 
 type Token struct {
 	Type    TokenType
-	Literal []rune
-	buffer  []rune
+	Literal []byte
 	Line    int
 	Column  int
 }
 
 func NewToken() *Token {
 	return &Token{
-		buffer: make([]rune, initialBufferSize),
 	}
 }
 
-func (t *Token) AppendLiteral(b rune) {
-	if len(t.Literal) == cap(t.buffer) {
-		newBuffer := make([]rune, cap(t.buffer)*2)
-		copy(newBuffer, t.buffer)
-		t.buffer = newBuffer
-	}
-	t.Literal = append(t.Literal, b)
-}
 
 func (t *Token) Reset() {
 	t.Type = ILLEGAL
-	t.Literal = t.Literal[:0]
+    t.Literal = make([]byte, 0)
 	t.Line = 0
 	t.Column = 0
 }
