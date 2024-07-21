@@ -66,11 +66,6 @@ func (p *Parser) parseStylesheet() {
 	case COMMENT:
 		comment := &Comment{Text: p.token.Literal}
 		p.stylesheet.Rules = append(p.stylesheet.Rules, comment)
-	case SELECTOR: // TODO handle combinator rules
-        selector := p.parseSelector()
-        if selector != nil {
-            p.stylesheet.Rules = append(p.stylesheet.Rules, selector)
-        }
 	default:
 		// Ignore unknown tokens for now
 	}

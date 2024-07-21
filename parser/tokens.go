@@ -10,13 +10,15 @@ const (
 	IDENT   = "IDENT"
 	NUMBER  = "NUMBER"
 	STRING  = "STRING"
+	COLOR   = "COLOR"
 
-	// CSS Specifics
-	AT_RULE   = "AT_RULE"
-	SELECTOR  = "SELECTOR"
-	COLOR     = "COLOR"
+	// Constructs
+
+	STARTS_WITH = "^="
+	DBLCOLON    = "::"
 
 	// Symbols and operators
+	AT          = "AT"
 	COLON       = ":"
 	SEMICOLON   = ";"
 	COMMA       = ","
@@ -47,7 +49,6 @@ const (
 
 type TokenType string
 
-
 type Token struct {
 	Type    TokenType
 	Literal []byte
@@ -56,14 +57,12 @@ type Token struct {
 }
 
 func NewToken() *Token {
-	return &Token{
-	}
+	return &Token{}
 }
-
 
 func (t *Token) Reset() {
 	t.Type = ILLEGAL
-    t.Literal = make([]byte, 0)
+	t.Literal = make([]byte, 0)
 	t.Line = 0
 	t.Column = 0
 }
