@@ -37,13 +37,13 @@ func NewStylesheet() *Stylesheet {
 }
 
 func (s *Stylesheet) String() string {
-	var sb strings.Builder
-	sb.WriteString("Stylesheet{\n")
-	for _, rule := range s.Rules {
-		sb.WriteString("  " + indentLines(rule.String(), 2) + "\n")
-	}
-	sb.WriteString("}")
-	return sb.String()
+    var sb strings.Builder
+    sb.WriteString("Stylesheet{\n")
+    for _, rule := range s.Rules {
+        sb.WriteString(indentLines(rule.String(), 2) + "\n")
+    }
+    sb.WriteString("}")
+    return sb.String()
 }
 
 type Comment struct {
@@ -69,27 +69,24 @@ type Selector struct {
 func (c *Selector) Type() NodeType { return NodeSelector }
 
 func (s *Selector) String() string {
-	var sb strings.Builder
-	sb.WriteString("Selector{\n")
-	sb.WriteString("  Selectors: [")
-	for i, sel := range s.Selectors {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(sel.String())
-	}
-	sb.WriteString("]\n")
-	if len(s.Rules) > 0 {
-		sb.WriteString("  Rules: [\n")
-		for _, rule := range s.Rules {
-			sb.WriteString("    " + indentLines(rule.String(), 4) + "\n")
-		}
-		sb.WriteString("  ]\n")
-	} else {
-		sb.WriteString("  Rules: []\n")
-	}
-	sb.WriteString("}")
-	return sb.String()
+    var sb strings.Builder
+    sb.WriteString("Selector{\n")
+    sb.WriteString("  Selectors: [\n")
+    for _, sel := range s.Selectors {
+        sb.WriteString("    " + sel.String() + ",\n")
+    }
+    sb.WriteString("  ]\n")
+    if len(s.Rules) > 0 {
+        sb.WriteString("  Rules: [\n")
+        for _, rule := range s.Rules {
+            sb.WriteString(indentLines(rule.String(), 4) + "\n")
+        }
+        sb.WriteString("  ]\n")
+    } else {
+        sb.WriteString("  Rules: []\n")
+    }
+    sb.WriteString("}")
+    return sb.String()
 }
 
 type SelectorType int
@@ -99,6 +96,7 @@ const (
 	Class
 	ID
 	Attribute
+    Pseudo
 	Combinator
 )
 
@@ -108,15 +106,28 @@ type SelectorValue struct {
 }
 
 func (sv SelectorValue) String() string {
-	return fmt.Sprintf("{Type: %s, Value: %q}", selectorTypeToString(sv.Type), string(sv.Value))
+    return fmt.Sprintf("{Type: %s, Value: %q}", selectorTypeToString(sv.Type), sv.Value)
 }
 
-type Decleration struct {
-	Key   []rune
+type Declaration struct {
+	Key   []byte
 	Value [][]byte
 }
 
-func (c *Decleration) Type() NodeType { return NodeDeclaration }
+func (c *Declaration) Type() NodeType { return NodeDeclaration }
+
+func (d *Declaration) String() string {
+    var sb strings.Builder
+    sb.WriteString("Declaration{\n")
+    sb.WriteString(fmt.Sprintf("  Key: %q,\n", d.Key))
+    sb.WriteString("  Value: [\n")
+    for _, v := range d.Value {
+        sb.WriteString(fmt.Sprintf("    %q,\n", v))
+    }
+    sb.WriteString("  ]\n")
+    sb.WriteString("}")
+    return sb.String()
+}
 
 func selectorTypeToString(st SelectorType) string {
 	switch st {
@@ -128,6 +139,10 @@ func selectorTypeToString(st SelectorType) string {
 		return "ID"
 	case Attribute:
 		return "Attribute"
+    case Pseudo:
+        return "Pseudo"
+    case Combinator:
+        return "Combinator"
 	default:
 		return fmt.Sprintf("Unknown(%d)", st)
 	}
