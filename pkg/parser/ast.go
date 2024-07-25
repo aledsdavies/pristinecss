@@ -17,10 +17,21 @@ const (
 	NodeComment
 )
 
+type Visitor interface {
+	VisitStylesheet(*Stylesheet)
+	VisitSelector(*Selector)
+	VisitDeclaration(*Declaration)
+	VisitAtRule(*AtRule)
+	VisitComment(*Comment)
+}
+
 type Node interface {
 	Type() NodeType
 	String() string
+	Accept(Visitor)
 }
+
+var _ Node = (*Stylesheet)(nil)
 
 type Stylesheet struct {
 	// Comments
@@ -30,34 +41,39 @@ type Stylesheet struct {
 	Rules []Node
 }
 
-func (s *Stylesheet) Type() NodeType { return NodeStylesheet }
-
 func NewStylesheet() *Stylesheet {
 	return &Stylesheet{Rules: []Node{}}
 }
 
+func (s *Stylesheet) Type() NodeType   { return NodeStylesheet }
+func (s *Stylesheet) Accept(v Visitor) { v.VisitStylesheet(s) }
+
 func (s *Stylesheet) String() string {
-    var sb strings.Builder
-    sb.WriteString("Stylesheet{\n")
-    for _, rule := range s.Rules {
-        sb.WriteString(indentLines(rule.String(), 2) + "\n")
-    }
-    sb.WriteString("}")
-    return sb.String()
+	var sb strings.Builder
+	sb.WriteString("Stylesheet{\n")
+	for _, rule := range s.Rules {
+		sb.WriteString(indentLines(rule.String(), 2) + "\n")
+	}
+	sb.WriteString("}")
+	return sb.String()
 }
+
+var _ Node = (*Comment)(nil)
 
 type Comment struct {
 	Text []byte
 }
 
-func (c *Comment) Type() NodeType { return NodeComment }
-
+func (c *Comment) Type() NodeType   { return NodeComment }
+func (c *Comment) Accept(v Visitor) { v.VisitComment(c) }
 func (c *Comment) String() string {
 	return fmt.Sprintf("Comment{Text: %q}", string(c.Text))
 }
 
+var _ Node = (*Selector)(nil)
+
 type Selector struct {
-    Selectors []SelectorValue
+	Selectors []SelectorValue
 
 	// Comment
 	// At Rules
@@ -66,27 +82,27 @@ type Selector struct {
 	Rules []Node
 }
 
-func (c *Selector) Type() NodeType { return NodeSelector }
-
+func (c *Selector) Type() NodeType   { return NodeSelector }
+func (s *Selector) Accept(v Visitor) { v.VisitSelector(s) }
 func (s *Selector) String() string {
-    var sb strings.Builder
-    sb.WriteString("Selector{\n")
-    sb.WriteString("  Selectors: [\n")
-    for _, sel := range s.Selectors {
-        sb.WriteString("    " + sel.String() + ",\n")
-    }
-    sb.WriteString("  ]\n")
-    if len(s.Rules) > 0 {
-        sb.WriteString("  Rules: [\n")
-        for _, rule := range s.Rules {
-            sb.WriteString(indentLines(rule.String(), 4) + "\n")
-        }
-        sb.WriteString("  ]\n")
-    } else {
-        sb.WriteString("  Rules: []\n")
-    }
-    sb.WriteString("}")
-    return sb.String()
+	var sb strings.Builder
+	sb.WriteString("Selector{\n")
+	sb.WriteString("  Selectors: [\n")
+	for _, sel := range s.Selectors {
+		sb.WriteString("    " + sel.String() + ",\n")
+	}
+	sb.WriteString("  ]\n")
+	if len(s.Rules) > 0 {
+		sb.WriteString("  Rules: [\n")
+		for _, rule := range s.Rules {
+			sb.WriteString(indentLines(rule.String(), 4) + "\n")
+		}
+		sb.WriteString("  ]\n")
+	} else {
+		sb.WriteString("  Rules: []\n")
+	}
+	sb.WriteString("}")
+	return sb.String()
 }
 
 type SelectorType int
@@ -96,7 +112,7 @@ const (
 	Class
 	ID
 	Attribute
-    Pseudo
+	Pseudo
 	Combinator
 )
 
@@ -106,27 +122,124 @@ type SelectorValue struct {
 }
 
 func (sv SelectorValue) String() string {
-    return fmt.Sprintf("{Type: %s, Value: %q}", selectorTypeToString(sv.Type), sv.Value)
+	return fmt.Sprintf("{Type: %s, Value: %q}", selectorTypeToString(sv.Type), sv.Value)
 }
+
+var _ Node = (*Declaration)(nil)
 
 type Declaration struct {
 	Key   []byte
 	Value [][]byte
 }
 
-func (c *Declaration) Type() NodeType { return NodeDeclaration }
-
+func (c *Declaration) Type() NodeType   { return NodeDeclaration }
+func (d *Declaration) Accept(v Visitor) { v.VisitDeclaration(d) }
 func (d *Declaration) String() string {
-    var sb strings.Builder
-    sb.WriteString("Declaration{\n")
-    sb.WriteString(fmt.Sprintf("  Key: %q,\n", d.Key))
-    sb.WriteString("  Value: [\n")
-    for _, v := range d.Value {
-        sb.WriteString(fmt.Sprintf("    %q,\n", v))
-    }
-    sb.WriteString("  ]\n")
-    sb.WriteString("}")
-    return sb.String()
+	var sb strings.Builder
+	sb.WriteString("Declaration{\n")
+	sb.WriteString(fmt.Sprintf("  Key: %q,\n", d.Key))
+	sb.WriteString("  Value: [\n")
+	for _, v := range d.Value {
+		sb.WriteString(fmt.Sprintf("    %q,\n", v))
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
+}
+
+type AtType int
+
+const (
+	MEDIA AtType = iota
+	// Add more at-rule types here as needed
+)
+
+type AtQuery interface {
+	AtType() AtType
+	String() string
+}
+
+type AtRule struct {
+	Name  []byte
+	Query AtQuery
+	Rules []Node // For nested rules within the at-rule
+}
+
+func (a *AtRule) Type() NodeType   { return NodeAtRule }
+func (a *AtRule) Accept(v Visitor) { v.VisitAtRule(a) }
+func (a *AtRule) String() string {
+	var sb strings.Builder
+	sb.WriteString("AtRule{\n")
+	sb.WriteString(fmt.Sprintf("  Name: %q,\n", a.Name))
+	if a.Query != nil {
+		sb.WriteString("  Query: ")
+		sb.WriteString(indentLines(a.Query.String(), 4))
+		sb.WriteString(",\n")
+	}
+	if len(a.Rules) > 0 {
+		sb.WriteString("  Rules: [\n")
+		for _, rule := range a.Rules {
+			sb.WriteString(indentLines(rule.String(), 4) + ",\n")
+		}
+		sb.WriteString("  ],\n")
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+type MediaQuery struct {
+	Queries []MediaQueryExpression
+}
+
+func (mq MediaQuery) AtType() AtType { return MEDIA }
+
+func (mq MediaQuery) String() string {
+	var sb strings.Builder
+	sb.WriteString("MediaQuery{\n")
+	sb.WriteString("  Queries: [\n")
+	for _, query := range mq.Queries {
+		sb.WriteString(indentLines(query.String(), 4) + ",\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
+}
+
+type MediaQueryExpression struct {
+	MediaType []byte
+	Not       bool
+	Only      bool
+	Features  []MediaFeature
+}
+
+func (mqe MediaQueryExpression) String() string {
+	var sb strings.Builder
+	sb.WriteString("MediaQueryExpression{\n")
+	sb.WriteString(fmt.Sprintf("  MediaType: %q,\n", mqe.MediaType))
+	sb.WriteString(fmt.Sprintf("  Not: %v,\n", mqe.Not))
+	sb.WriteString(fmt.Sprintf("  Only: %v,\n", mqe.Only))
+	sb.WriteString("  Features: [\n")
+	for _, feature := range mqe.Features {
+		sb.WriteString(indentLines(feature.String(), 4) + ",\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
+}
+
+type MediaFeature struct {
+	Name  []byte
+	Value []byte
+}
+
+func (mf MediaFeature) String() string {
+	var valueStr string
+	if mf.Value != nil {
+		valueStr = fmt.Sprintf("%q", mf.Value)
+	} else {
+		valueStr = "nil"
+	}
+	return fmt.Sprintf("MediaFeature{Name: %q, Value: %s}", mf.Name, valueStr)
 }
 
 func selectorTypeToString(st SelectorType) string {
@@ -139,10 +252,10 @@ func selectorTypeToString(st SelectorType) string {
 		return "ID"
 	case Attribute:
 		return "Attribute"
-    case Pseudo:
-        return "Pseudo"
-    case Combinator:
-        return "Combinator"
+	case Pseudo:
+		return "Pseudo"
+	case Combinator:
+		return "Combinator"
 	default:
 		return fmt.Sprintf("Unknown(%d)", st)
 	}

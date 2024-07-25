@@ -56,6 +56,14 @@ type Token struct {
 	Column  int
 }
 
+// Token needs to implement the Erasable interface
+func (t *Token) Erase() {
+	t.Type = ILLEGAL
+	t.Literal = t.Literal[:0]
+	t.Line = 0
+	t.Column = 0
+}
+
 func NewToken() *Token {
 	return &Token{}
 }

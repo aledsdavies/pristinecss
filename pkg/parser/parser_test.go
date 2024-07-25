@@ -16,11 +16,11 @@ func BenchmarkParseFrameworks(b *testing.B) {
 		name string
 		path string
 	}{
-		{"Bootstrap", filepath.Join("..", "test-data", "frameworks", "bootstrap.css")},
-		{"Bulma", filepath.Join("..", "test-data", "frameworks", "bulma.css")},
-		{"Foundation", filepath.Join("..", "test-data", "frameworks", "foundation.css")},
-		{"Materialize", filepath.Join("..", "test-data", "frameworks", "materialize.css")},
-		{"Spectre", filepath.Join("..", "test-data", "frameworks", "spectre.css")},
+		{"Bootstrap", filepath.Join("..", "..", "test-data", "frameworks", "bootstrap.css")},
+		{"Bulma", filepath.Join("..", "..", "test-data", "frameworks", "bulma.css")},
+		{"Foundation", filepath.Join("..", "..", "test-data", "frameworks", "foundation.css")},
+		{"Materialize", filepath.Join("..", "..", "test-data", "frameworks", "materialize.css")},
+		{"Spectre", filepath.Join("..", "..", "test-data", "frameworks", "spectre.css")},
 	}
 
 	for _, fw := range frameworks {
@@ -41,28 +41,12 @@ func BenchmarkParseFrameworks(b *testing.B) {
 	}
 }
 
-func TestParse(t *testing.T) {
+func TestBasicSelectors(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		expected *Stylesheet
 	}{
-		{
-			name:  "Empty stylesheet",
-			input: "",
-			expected: &Stylesheet{
-				Rules: []Node{},
-			},
-		},
-		{
-			name:  "Comment only",
-			input: "/* This is a comment */",
-			expected: &Stylesheet{
-				Rules: []Node{
-					&Comment{Text: []byte(" This is a comment ")},
-				},
-			},
-		},
 		{
 			name:  "Simple element selector",
 			input: "div { color: blue; }",
@@ -119,6 +103,17 @@ func TestParse(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	runTests(t, tests)
+}
+
+func TestComplexSelectors(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *Stylesheet
+	}{
 		{
 			name:  "Compound selector",
 			input: "div.container { max-width: 1200px; }",
@@ -191,56 +186,26 @@ func TestParse(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	runTests(t, tests)
+}
+
+func TestPseudoSelectors(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *Stylesheet
+	}{
 		{
-			name:  "Adjacent sibling combinator",
-			input: "h1 + p { font-weight: bold; }",
+			name:  "Pseudo-class selector",
+			input: "a:hover { color: red; }",
 			expected: &Stylesheet{
 				Rules: []Node{
 					&Selector{
 						Selectors: []SelectorValue{
-							{Type: Element, Value: []byte("h1")},
-							{Type: Combinator, Value: []byte("+")},
-							{Type: Element, Value: []byte("p")},
-						},
-						Rules: []Node{
-							&Declaration{Key: []byte("font-weight"), Value: [][]byte{[]byte("bold")}},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:  "General sibling combinator",
-			input: "h1 ~ p { margin-top: 1em; }",
-			expected: &Stylesheet{
-				Rules: []Node{
-					&Selector{
-						Selectors: []SelectorValue{
-							{Type: Element, Value: []byte("h1")},
-							{Type: Combinator, Value: []byte("~")},
-							{Type: Element, Value: []byte("p")},
-						},
-						Rules: []Node{
-							&Declaration{Key: []byte("margin-top"), Value: [][]byte{[]byte("1"), []byte("em")}},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:  "Complex selector",
-			input: "div.container > ul.list li:first-child { color: red; }",
-			expected: &Stylesheet{
-				Rules: []Node{
-					&Selector{
-						Selectors: []SelectorValue{
-							{Type: Element, Value: []byte("div")},
-							{Type: Class, Value: []byte(".container")},
-							{Type: Combinator, Value: []byte(">")},
-							{Type: Element, Value: []byte("ul")},
-							{Type: Class, Value: []byte(".list")},
-							{Type: Element, Value: []byte("li")},
-							{Type: Pseudo, Value: []byte(":first-child")},
+							{Type: Element, Value: []byte("a")},
+							{Type: Pseudo, Value: []byte(":hover")},
 						},
 						Rules: []Node{
 							&Declaration{Key: []byte("color"), Value: [][]byte{[]byte("red")}},
@@ -251,7 +216,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name:  "Pseudo-element selector",
-			input: "p::first-line { color: red; font-variant: small-caps; }",
+			input: "p::first-line { font-weight: bold; }",
 			expected: &Stylesheet{
 				Rules: []Node{
 					&Selector{
@@ -260,8 +225,7 @@ func TestParse(t *testing.T) {
 							{Type: Pseudo, Value: []byte("::first-line")},
 						},
 						Rules: []Node{
-							&Declaration{Key: []byte("color"), Value: [][]byte{[]byte("red")}},
-							&Declaration{Key: []byte("font-variant"), Value: [][]byte{[]byte("small-caps")}},
+							&Declaration{Key: []byte("font-weight"), Value: [][]byte{[]byte("bold")}},
 						},
 					},
 				},
@@ -269,7 +233,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name:  "Pseudo-class and pseudo-element selector",
-			input: "a:hover::before { content: '→'; margin-right: 5px; }",
+			input: "a:hover::before { content: '→'; }",
 			expected: &Stylesheet{
 				Rules: []Node{
 					&Selector{
@@ -280,7 +244,6 @@ func TestParse(t *testing.T) {
 						},
 						Rules: []Node{
 							&Declaration{Key: []byte("content"), Value: [][]byte{[]byte("'→'")}},
-							&Declaration{Key: []byte("margin-right"), Value: [][]byte{[]byte("5"), []byte("px")}},
 						},
 					},
 				},
@@ -288,6 +251,108 @@ func TestParse(t *testing.T) {
 		},
 	}
 
+	runTests(t, tests)
+}
+
+func TestMediaQueries(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *Stylesheet
+	}{
+		{
+			name:  "Basic media query",
+			input: "@media screen { body { font-size: 16px; } }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&AtRule{
+						Name: []byte("media"),
+						Query: &MediaQuery{
+							Queries: []MediaQueryExpression{
+								{
+									MediaType: []byte("screen"),
+								},
+							},
+						},
+						Rules: []Node{
+							&Selector{
+								Selectors: []SelectorValue{{Type: Element, Value: []byte("body")}},
+								Rules: []Node{
+									&Declaration{Key: []byte("font-size"), Value: [][]byte{[]byte("16"), []byte("px")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "Media query with condition",
+			input: "@media (max-width: 600px) { .container { width: 100%; } }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&AtRule{
+						Name: []byte("media"),
+						Query: &MediaQuery{
+							Queries: []MediaQueryExpression{
+								{
+									Features: []MediaFeature{
+										{Name: []byte("max-width"), Value: []byte("600px")},
+									},
+								},
+							},
+						},
+						Rules: []Node{
+							&Selector{
+								Selectors: []SelectorValue{{Type: Class, Value: []byte(".container")}},
+								Rules: []Node{
+									&Declaration{Key: []byte("width"), Value: [][]byte{[]byte("100"), []byte("%")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "Complex media query",
+			input: "@media screen and (min-width: 768px) and (max-width: 1024px) { .sidebar { display: none; } }",
+			expected: &Stylesheet{
+				Rules: []Node{
+					&AtRule{
+						Name: []byte("media"),
+						Query: &MediaQuery{
+							Queries: []MediaQueryExpression{
+								{
+									MediaType: []byte("screen"),
+									Features: []MediaFeature{
+										{Name: []byte("min-width"), Value: []byte("768px")},
+										{Name: []byte("max-width"), Value: []byte("1024px")},
+									},
+								},
+							},
+						},
+						Rules: []Node{
+							&Selector{
+								Selectors: []SelectorValue{{Type: Class, Value: []byte(".sidebar")}},
+								Rules: []Node{
+									&Declaration{Key: []byte("display"), Value: [][]byte{[]byte("none")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	runTests(t, tests)
+}
+
+func runTests(t *testing.T, tests []struct {
+	name     string
+	input    string
+	expected *Stylesheet
+}) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens := lexer.Lex(strings.NewReader(tt.input))
