@@ -1,12 +1,12 @@
 package parser
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/aledsdavies/pristinecss/pkg/lexer"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -24,18 +24,18 @@ func BenchmarkParseFrameworks(b *testing.B) {
 	}
 
 	for _, fw := range frameworks {
-		content, err := os.ReadFile(fw.path)
+		content, err := os.Open(fw.path)
 		if err != nil {
 			b.Fatalf("Could not read the file %s: %v", fw.path, err)
 		}
+		tokens := lexer.Lex(content)
 
 		b.Run(fw.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				reader := bytes.NewReader(content)
-				Parse(reader)
+				Parse(tokens)
 			}
 		})
 	}
@@ -290,7 +290,8 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, errors := Parse(strings.NewReader(tt.input))
+			tokens := lexer.Lex(strings.NewReader(tt.input))
+			result, errors := Parse(tokens)
 			if len(errors) > 0 {
 				t.Errorf("Unexpected errors: %v", errors)
 			}

@@ -1,50 +1,12 @@
-package parser
+package lexer
 
 import (
 	"bytes"
 	"io"
 	"log"
+
+	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
-
-const (
-	bufferSize = 1024
-)
-
-type lexerBuffer struct {
-	buffer chan *lexer
-	new    func() *lexer
-}
-
-func newLexerBuffer(size int) *lexerBuffer {
-	return &lexerBuffer{
-		buffer: make(chan *lexer, size),
-		new: func() *lexer {
-			return &lexer{
-				input: make([]byte, 0, bufferSize),
-			}
-		},
-	}
-}
-
-func (lb *lexerBuffer) Get() *lexer {
-	select {
-	case l := <-lb.buffer:
-		return l
-	default:
-		return lb.new()
-	}
-}
-
-func (lb *lexerBuffer) Put(l *lexer) {
-	select {
-	case lb.buffer <- l:
-		// Lexer added back to the buffer
-	default:
-		// Buffer is full, lexer is discarded
-	}
-}
-
-var globalLexerBuffer = newLexerBuffer(10)
 
 type lexer struct {
 	input        []byte
@@ -56,19 +18,14 @@ type lexer struct {
 	logger       *log.Logger
 }
 
-func Read(input io.Reader) *lexer {
-	l := globalLexerBuffer.Get()
-	l.reset(input)
-	return l
+func Lex(input io.Reader) []tokens.Token {
+	l := &lexer{}
+	l.init(input)
+	return l.tokenize()
 }
 
-func (l *lexer) Release() {
-	globalLexerBuffer.Put(l)
-}
-
-func (l *lexer) reset(input io.Reader) {
-	l.input = l.input[:0] // Clear the slice while keeping the capacity
-	buf := bytes.NewBuffer(l.input)
+func (l *lexer) init(input io.Reader) {
+	buf := new(bytes.Buffer)
 	_, err := io.Copy(buf, input)
 	if err != nil {
 		log.Fatalf("Fatal error reading input: %v", err)
@@ -82,96 +39,108 @@ func (l *lexer) reset(input io.Reader) {
 	l.readChar()
 }
 
-func (l *lexer) NextToken() Token {
+func (l *lexer) tokenize() []tokens.Token {
+	var t []tokens.Token
+	for {
+		tok := l.nextToken()
+		t = append(t, tok)
+		if tok.Type == tokens.EOF {
+			break
+		}
+	}
+	return t
+}
+
+func (l *lexer) nextToken() tokens.Token {
 	l.skipWhitespace()
-	tok := Token{
+	tok := tokens.Token{
 		Line:   l.line,
 		Column: l.column,
 	}
 	start := l.position
 
 	if l.ch == 0 {
-		tok.Type = EOF
+		tok.Type = tokens.EOF
 		tok.Literal = []byte{}
 		return tok
 	}
 
 	switch l.ch {
 	case ';':
-		tok.Type = SEMICOLON
+		tok.Type = tokens.SEMICOLON
 	case ',':
-		tok.Type = COMMA
+		tok.Type = tokens.COMMA
 	case '(':
-		tok.Type = LPAREN
+		tok.Type = tokens.LPAREN
 	case ')':
-		tok.Type = RPAREN
+		tok.Type = tokens.RPAREN
 	case '{':
-		tok.Type = LBRACE
+		tok.Type = tokens.LBRACE
 	case '}':
-		tok.Type = RBRACE
+		tok.Type = tokens.RBRACE
 	case '[':
-		tok.Type = LBRACKET
+		tok.Type = tokens.LBRACKET
 	case ']':
-		tok.Type = RBRACKET
+		tok.Type = tokens.RBRACKET
 	case '=':
-		tok.Type = EQUALS
+		tok.Type = tokens.EQUALS
 	case '+':
-		tok.Type = PLUS
+		tok.Type = tokens.PLUS
 	case '>':
-		tok.Type = GREATER
+		tok.Type = tokens.GREATER
 	case '~':
-		tok.Type = TILDE
+		tok.Type = tokens.TILDE
 	case '|':
-		tok.Type = PIPE
+		tok.Type = tokens.PIPE
 	case '^':
 		if l.peekChar() == '=' {
 			l.readChar()
-			tok.Type = STARTS_WITH
+			tok.Type = tokens.STARTS_WITH
 		} else {
-			tok.Type = ILLEGAL
+			tok.Type = tokens.ILLEGAL
 		}
 	case '%':
-		tok.Type = PERCENTAGE
+		tok.Type = tokens.PERCENTAGE
 	case '$':
-		tok.Type = DOLLAR
+		tok.Type = tokens.DOLLAR
 	case '!':
-		tok.Type = EXCLAMATION
+		tok.Type = tokens.EXCLAMATION
 	case '@':
-		tok.Type = AT
+		tok.Type = tokens.AT
 	case '*':
-		tok.Type = ASTERISK
+		tok.Type = tokens.ASTERISK
 	case ':':
 		if l.peekChar() == ':' {
 			l.readChar()
-			tok.Type = DBLCOLON
+			tok.Type = tokens.DBLCOLON
 		} else {
-			tok.Type = COLON
+			tok.Type = tokens.COLON
 		}
 	case '.':
-		tok.Type = DOT
+		tok.Type = tokens.DOT
 	case 0:
-		tok.Type = EOF
+		tok.Type = tokens.EOF
 	case '#':
-        tok.Type = l.readHashOrColor()
+		tok.Type = l.readHashOrColor()
 	case '-':
 		tok.Type = l.handleDash()
 	case '\\':
-		tok.Type = IDENT
+		tok.Type = tokens.IDENT
 		l.readIdentifier()
 	case '/':
 		tok.Type = l.handleSlash()
 	case '"', '\'':
-		tok.Type = STRING
+		tok.Type = tokens.STRING
 		l.readString()
 	default:
 		if isLetter(l.ch) {
-			tok.Type = IDENT
+			tok.Type = tokens.IDENT
 			l.readIdentifier()
 		} else if isDigit(l.ch) {
-			tok.Type = NUMBER
+			tok.Type = tokens.NUMBER
 			l.readNumber()
 		} else {
-			tok.Type = ILLEGAL
+			tok.Type = tokens.ILLEGAL
 		}
 	}
 
@@ -238,30 +207,30 @@ func (l *lexer) skipWhitespace() {
 	}
 }
 
-func (l *lexer) handleSlash() TokenType {
+func (l *lexer) handleSlash() tokens.TokenType {
 	if l.peekChar() == '*' {
 		l.readChar() // consume '*'
 		l.readComment()
-		return COMMENT
+		return tokens.COMMENT
 	}
-	return DIVIDE
+	return tokens.DIVIDE
 }
 
-func (l *lexer) handleDash() TokenType {
+func (l *lexer) handleDash() tokens.TokenType {
 	if l.peekChar() == '-' {
 		l.readChar() // consume second '-'
 		return l.readCustomProperty()
 	} else if isDigit(l.peekChar()) {
 		l.readNumber()
-		return NUMBER
+		return tokens.NUMBER
 	} else if isWhitespace(l.peekChar()) {
-		return MINUS
+		return tokens.MINUS
 	} else if isIdentStart(l.peekChar()) || l.peekChar() == '\\' {
 		l.readChar() // consume next char
 		l.readIdentifier()
-		return IDENT
+		return tokens.IDENT
 	}
-	return MINUS
+	return tokens.MINUS
 }
 
 func (l *lexer) readString() {
@@ -321,32 +290,32 @@ func (l *lexer) readEscapedChar() {
 	}
 }
 
-func (l *lexer) readHashOrColor() TokenType {
-    colorLength := 0
-    start := l.position
+func (l *lexer) readHashOrColor() tokens.TokenType {
+	colorLength := 0
+	start := l.position
 
-    for isHexDigit(l.peekChar()) && colorLength < 6 {
-        l.readChar()
-        colorLength++
-    }
+	for isHexDigit(l.peekChar()) && colorLength < 6 {
+		l.readChar()
+		colorLength++
+	}
 
-    if (colorLength == 3 || colorLength == 6) &&
-        (!isIdentPart(l.peekChar()) || l.peekChar() == 0) {
-        return COLOR
-    }
+	if (colorLength == 3 || colorLength == 6) &&
+		(!isIdentPart(l.peekChar()) || l.peekChar() == 0) {
+		return tokens.COLOR
+	}
 
-    // If it's not a valid color, treat it as a HASH
-    l.position = start // Reset position to just after the '#'
-    l.readPosition = start + 1
-    l.ch = '#'
-    return HASH
+	// If it's not a valid color, treat it as a HASH
+	l.position = start // Reset position to just after the '#'
+	l.readPosition = start + 1
+	l.ch = '#'
+	return tokens.HASH
 }
 
-func (l *lexer) readCustomProperty() TokenType {
+func (l *lexer) readCustomProperty() tokens.TokenType {
 	for isIdentPart(l.peekChar()) || l.peekChar() == '-' {
 		l.readChar()
 	}
-	return IDENT
+	return tokens.IDENT
 }
 
 func (l *lexer) readComment() {
