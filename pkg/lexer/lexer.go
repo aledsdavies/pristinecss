@@ -6,7 +6,98 @@ import (
 	"log"
 
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
+	mempool "github.com/aledsdavies/pristinecss/pkg/utils"
 )
+
+const (
+	EOF         = 0
+	SEMICOLON   = ';'
+	COMMA       = ','
+	LPAREN      = '('
+	RPAREN      = ')'
+	LBRACE      = '{'
+	RBRACE      = '}'
+	LBRACKET    = '['
+	RBRACKET    = ']'
+	EQUALS      = '='
+	PLUS        = '+'
+	GREATER     = '>'
+	TILDE       = '~'
+	PIPE        = '|'
+	CARET       = '^'
+	AMPERSAND   = '&'
+	PERCENTAGE  = '%'
+	DOLLAR      = '$'
+	EXCLAMATION = '!'
+	AT          = '@'
+	ASTERISK    = '*'
+	COLON       = ':'
+	DOT         = '.'
+	HASH        = '#'
+	DASH        = '-'
+	BACKSLASH   = '\\'
+	SLASH       = '/'
+	DOUBLEQUOTE = '"'
+	SINGLEQUOTE = '\''
+)
+
+var (
+	isWhitespace [256]bool
+	isLetter     [256]bool
+	isDigit      [256]bool
+	isIdentStart [256]bool
+	isIdentPart  [256]bool
+	isHexDigit   [256]bool
+)
+
+func init() {
+	for i := 0; i < 256; i++ {
+		ch := byte(i)
+		isWhitespace[i] = ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
+		isLetter[i] = ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' || ch >= 0x80
+		isDigit[i] = '0' <= ch && ch <= '9'
+		isIdentStart[i] = isLetter[i] || ch == '_' || ch >= 0x80
+		isIdentPart[i] = isIdentStart[i] || isDigit[i] || ch == '-'
+		isHexDigit[i] = isDigit[i] || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
+	}
+}
+
+var tokenPool *mempool.Pool[*tokens.Token]
+var lexerPool *mempool.Pool[*lexer]
+var bufferPool *mempool.Pool[*PoolByteBuffer]
+
+func init() {
+	tokenPool = mempool.NewPool(
+		func() *tokens.Token { return &tokens.Token{} },
+		mempool.WithCapacity(1),
+	)
+	lexerPool = mempool.NewPool(
+		func() *lexer {
+			l := &lexer{}
+			l.Erase()
+			return l
+		},
+		mempool.WithCapacity(10),
+	)
+	bufferPool = mempool.NewPool(
+		func() *PoolByteBuffer { return &PoolByteBuffer{Buffer: bytes.Buffer{}} },
+		mempool.WithCapacity(10),
+	)
+}
+
+type PoolByteBuffer struct {
+	bytes.Buffer
+}
+
+func (pbb *PoolByteBuffer) Erase() {
+	pbb.Reset()
+}
+
+// estimateTokenCount estimates the number of tokens based on input size
+func estimateTokenCount(inputSize int) int {
+	// This is a rough estimate and may need tuning based on your specific CSS patterns
+	return inputSize / 4
+}
 
 type lexer struct {
 	input        []byte
@@ -19,124 +110,132 @@ type lexer struct {
 }
 
 func Lex(input io.Reader) []tokens.Token {
-	l := &lexer{}
-	l.init(input)
-	return l.tokenize()
-}
+	l := lexerPool.Get()
+	defer lexerPool.Put(l)
 
-func (l *lexer) init(input io.Reader) {
-	buf := new(bytes.Buffer)
-	_, err := io.Copy(buf, input)
+	buf := bufferPool.Get()
+	defer bufferPool.Put(buf)
+
+	_, err := io.Copy(&buf.Buffer, input)
 	if err != nil {
 		log.Fatalf("Fatal error reading input: %v", err)
 	}
 	l.input = buf.Bytes()
+	l.readChar()
+
+	return l.tokenize()
+}
+
+func (l *lexer) Erase() {
+	l.input = l.input[:0]
 	l.position = 0
 	l.readPosition = 0
 	l.ch = 0
 	l.line = 1
 	l.column = 0
-	l.readChar()
 }
 
 func (l *lexer) tokenize() []tokens.Token {
-	var t []tokens.Token
+	estimatedTokens := estimateTokenCount(len(l.input))
+	result := make([]tokens.Token, 0, estimatedTokens)
 	for {
 		tok := l.nextToken()
-		t = append(t, tok)
+		result = append(result, *tok)
 		if tok.Type == tokens.EOF {
+			tokenPool.Put(tok)
 			break
 		}
+		tokenPool.Put(tok)
 	}
-	return t
+
+	return result
 }
 
-func (l *lexer) nextToken() tokens.Token {
+func (l *lexer) nextToken() *tokens.Token {
 	l.skipWhitespace()
-	tok := tokens.Token{
-		Line:   l.line,
-		Column: l.column,
-	}
+	tok := tokenPool.Get()
+	tok.Line = l.line
+	tok.Column = l.column
 	start := l.position
 
-	if l.ch == 0 {
+	if l.ch == EOF {
 		tok.Type = tokens.EOF
 		tok.Literal = []byte{}
 		return tok
 	}
 
 	switch l.ch {
-	case ';':
+	case SEMICOLON:
 		tok.Type = tokens.SEMICOLON
-	case ',':
+	case COMMA:
 		tok.Type = tokens.COMMA
-	case '(':
+	case AMPERSAND:
+		tok.Type = tokens.AMPERSAND
+	case LPAREN:
 		tok.Type = tokens.LPAREN
-	case ')':
+	case RPAREN:
 		tok.Type = tokens.RPAREN
-	case '{':
+	case LBRACE:
 		tok.Type = tokens.LBRACE
-	case '}':
+	case RBRACE:
 		tok.Type = tokens.RBRACE
-	case '[':
+	case LBRACKET:
 		tok.Type = tokens.LBRACKET
-	case ']':
+	case RBRACKET:
 		tok.Type = tokens.RBRACKET
-	case '=':
+	case EQUALS:
 		tok.Type = tokens.EQUALS
-	case '+':
+	case PLUS:
 		tok.Type = tokens.PLUS
-	case '>':
+	case GREATER:
 		tok.Type = tokens.GREATER
-	case '~':
+	case TILDE:
 		tok.Type = tokens.TILDE
-	case '|':
+	case PIPE:
 		tok.Type = tokens.PIPE
-	case '^':
-		if l.peekChar() == '=' {
+	case CARET:
+		if l.peekChar() == EQUALS {
 			l.readChar()
 			tok.Type = tokens.STARTS_WITH
 		} else {
 			tok.Type = tokens.ILLEGAL
 		}
-	case '%':
+	case PERCENTAGE:
 		tok.Type = tokens.PERCENTAGE
-	case '$':
+	case DOLLAR:
 		tok.Type = tokens.DOLLAR
-	case '!':
+	case EXCLAMATION:
 		tok.Type = tokens.EXCLAMATION
-	case '@':
+	case AT:
 		tok.Type = tokens.AT
-	case '*':
+	case ASTERISK:
 		tok.Type = tokens.ASTERISK
-	case ':':
-		if l.peekChar() == ':' {
+	case COLON:
+		if l.peekChar() == COLON {
 			l.readChar()
 			tok.Type = tokens.DBLCOLON
 		} else {
 			tok.Type = tokens.COLON
 		}
-	case '.':
+	case DOT:
 		tok.Type = tokens.DOT
-	case 0:
-		tok.Type = tokens.EOF
-	case '#':
+	case HASH:
 		tok.Type = l.readHashOrColor()
-	case '-':
+	case DASH:
 		tok.Type = l.handleDash()
-	case '\\':
+	case BACKSLASH:
 		tok.Type = tokens.IDENT
 		l.readIdentifier()
-	case '/':
+	case SLASH:
 		tok.Type = l.handleSlash()
-	case '"', '\'':
+	case DOUBLEQUOTE, SINGLEQUOTE:
 		tok.Type = tokens.STRING
 		l.readString()
 	default:
-		if isLetter(l.ch) {
+		if isLetter[l.ch] {
 			tok.Type = tokens.IDENT
 			l.readIdentifier()
-		} else if isDigit(l.ch) {
+		} else if isDigit[l.ch] {
 			tok.Type = tokens.NUMBER
 			l.readNumber()
 		} else {
@@ -144,7 +243,7 @@ func (l *lexer) nextToken() tokens.Token {
 		}
 	}
 
-	if l.ch != 0 {
+	if l.ch != EOF {
 		l.readChar()
 	}
 
@@ -156,7 +255,7 @@ func (l *lexer) nextToken() tokens.Token {
 
 func (l *lexer) readChar() {
 	if l.readPosition >= len(l.input) {
-		l.ch = 0 // EOF
+		l.ch = EOF
 	} else {
 		l.ch = l.input[l.readPosition]
 	}
@@ -165,7 +264,7 @@ func (l *lexer) readChar() {
 
 	if l.ch == '\n' {
 		l.line++
-		l.column = 0
+		l.column = EOF
 	} else {
 		l.column++
 	}
@@ -201,12 +300,6 @@ func (l *lexer) peekNextChar() byte {
 	return l.input[l.readPosition+1]
 }
 
-func (l *lexer) skipWhitespace() {
-	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
-		l.readChar()
-	}
-}
-
 func (l *lexer) handleSlash() tokens.TokenType {
 	if l.peekChar() == '*' {
 		l.readChar() // consume '*'
@@ -220,12 +313,12 @@ func (l *lexer) handleDash() tokens.TokenType {
 	if l.peekChar() == '-' {
 		l.readChar() // consume second '-'
 		return l.readCustomProperty()
-	} else if isDigit(l.peekChar()) {
+	} else if isDigit[l.peekChar()] {
 		l.readNumber()
 		return tokens.NUMBER
-	} else if isWhitespace(l.peekChar()) {
+	} else if isWhitespace[l.peekChar()] {
 		return tokens.MINUS
-	} else if isIdentStart(l.peekChar()) || l.peekChar() == '\\' {
+	} else if isIdentStart[l.peekChar()] || l.peekChar() == '\\' {
 		l.readChar() // consume next char
 		l.readIdentifier()
 		return tokens.IDENT
@@ -250,12 +343,12 @@ func (l *lexer) readString() {
 }
 
 func (l *lexer) readNumber() {
-	for isDigit(l.peekChar()) {
+	for isDigit[l.peekChar()] {
 		l.readChar()
 	}
-	if l.peekChar() == '.' && isDigit(l.peekNextChar()) {
+	if l.peekChar() == '.' && isDigit[l.peekNextChar()] {
 		l.readChar() // consume '.'
-		for isDigit(l.peekChar()) {
+		for isDigit[l.peekChar()] {
 			l.readChar()
 		}
 	}
@@ -265,7 +358,7 @@ func (l *lexer) readIdentifier() {
 	if l.ch == '\\' {
 		l.readEscapedChar()
 	}
-	for isIdentPart(l.peekChar()) || l.peekChar() == '-' || l.peekChar() == '\\' {
+	for isIdentPart[l.peekChar()] || l.peekChar() == '-' || l.peekChar() == '\\' {
 		if l.peekChar() == '\\' {
 			l.readChar() // consume '\'
 			l.readEscapedChar()
@@ -276,9 +369,9 @@ func (l *lexer) readIdentifier() {
 }
 
 func (l *lexer) readEscapedChar() {
-	if isHexDigit(l.peekChar()) {
+	if isHexDigit[l.peekChar()] {
 		hexChars := 0
-		for isHexDigit(l.peekChar()) && hexChars < 6 {
+		for isHexDigit[l.peekChar()] && hexChars < 6 {
 			l.readChar()
 			hexChars++
 		}
@@ -294,13 +387,13 @@ func (l *lexer) readHashOrColor() tokens.TokenType {
 	colorLength := 0
 	start := l.position
 
-	for isHexDigit(l.peekChar()) && colorLength < 6 {
+	for isHexDigit[l.peekChar()] && colorLength < 6 {
 		l.readChar()
 		colorLength++
 	}
 
 	if (colorLength == 3 || colorLength == 6) &&
-		(!isIdentPart(l.peekChar()) || l.peekChar() == 0) {
+		(!isIdentPart[l.peekChar()] || l.peekChar() == 0) {
 		return tokens.COLOR
 	}
 
@@ -312,7 +405,7 @@ func (l *lexer) readHashOrColor() tokens.TokenType {
 }
 
 func (l *lexer) readCustomProperty() tokens.TokenType {
-	for isIdentPart(l.peekChar()) || l.peekChar() == '-' {
+	for isIdentPart[l.peekChar()] || l.peekChar() == '-' {
 		l.readChar()
 	}
 	return tokens.IDENT
@@ -331,26 +424,8 @@ func (l *lexer) readComment() {
 	}
 }
 
-func isLetter(ch byte) bool {
-	return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' || ch >= 0x80
-}
-
-func isDigit(ch byte) bool {
-	return '0' <= ch && ch <= '9'
-}
-
-func isIdentStart(ch byte) bool {
-	return isLetter(ch) || ch == '_' || ch >= 0x80
-}
-
-func isIdentPart(ch byte) bool {
-	return isIdentStart(ch) || isDigit(ch) || ch == '-'
-}
-
-func isHexDigit(ch byte) bool {
-	return isDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
-}
-
-func isWhitespace(ch byte) bool {
-	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
+func (l *lexer) skipWhitespace() {
+	for isWhitespace[l.ch] {
+		l.readChar()
+	}
 }

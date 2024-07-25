@@ -1,75 +1,11 @@
 package parser
 
 import (
-	"bytes"
 	"fmt"
-	"sync"
+	"strings"
 
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
-
-var (
-	selectorPool = sync.Pool{
-		New: func() interface{} { return &Selector{} },
-	}
-	selectorValuePool = sync.Pool{
-		New: func() interface{} { return &SelectorValue{} },
-	}
-	declarationPool = sync.Pool{
-		New: func() interface{} { return &Declaration{} },
-	}
-	parseErrorPool = sync.Pool{
-		New: func() interface{} { return &ParseError{} },
-	}
-	byteSlicePool = sync.Pool{
-		New: func() interface{} { return make([]byte, 0, 64) },
-	}
-)
-
-func getByteSlice() []byte {
-	return byteSlicePool.Get().([]byte)[:0]
-}
-
-func putByteSlice(b []byte) {
-	byteSlicePool.Put(b)
-}
-
-func (p *Parser) getParseError() *ParseError {
-	return parseErrorPool.Get().(*ParseError)
-}
-
-func (p *Parser) putParseError(err *ParseError) {
-	parseErrorPool.Put(err)
-}
-
-func getSelector() *Selector {
-	return selectorPool.Get().(*Selector)
-}
-
-func putSelector(s *Selector) {
-	s.Selectors = s.Selectors[:0]
-	s.Rules = s.Rules[:0]
-	selectorPool.Put(s)
-}
-
-func getSelectorValue() *SelectorValue {
-	return selectorValuePool.Get().(*SelectorValue)
-}
-
-func putSelectorValue(sv *SelectorValue) {
-	sv.Value = sv.Value[:0]
-	selectorValuePool.Put(sv)
-}
-
-func getDeclaration() *Declaration {
-	return declarationPool.Get().(*Declaration)
-}
-
-func putDeclaration(d *Declaration) {
-	d.Key = d.Key[:0]
-	d.Value = d.Value[:0]
-	declarationPool.Put(d)
-}
 
 type ParseError struct {
 	Message  string
@@ -82,310 +18,431 @@ func (e ParseError) Error() string {
 	return fmt.Sprintf("line %d, column %d: %s (tokens. %s)", e.Line, e.Column, e.Message, e.TokenLit)
 }
 
-type Parser struct {
-	tokens            []tokens.Token
-	position          int
-	currentToken      tokens.Token
-	nextToken         tokens.Token
-	stylesheet        *Stylesheet
-	errors            []ParseError
-	selectorValues    []SelectorValue
-	declarationValues [][]byte
-	classNameBuilder  bytes.Buffer
-}
-
 func Parse(tokens []tokens.Token) (*Stylesheet, []ParseError) {
-	p := &Parser{
-		tokens:            tokens,
-		position:          0,
-		stylesheet:        NewStylesheet(),
-		errors:            make([]ParseError, 0, 10),
-		selectorValues:    make([]SelectorValue, 0, 10),
-		declarationValues: make([][]byte, 0, 10),
-	}
-
-	p.advance() // Load the first token
-	p.advance() // Load the second token (now in nextToken)
-
-	p.parseStylesheet()
-
-	// Create a copy of the errors slice to return
-	errors := make([]ParseError, len(p.errors))
-	copy(errors, p.errors)
-
-	// Release the errors back to the pool
-	for i := range p.errors {
-		p.putParseError(&p.errors[i])
-	}
-	p.errors = p.errors[:0]
-
-	return p.stylesheet, errors
+	stylesheet := &Stylesheet{Rules: make([]Node, 0)}
+	visitor := NewParseVisitor(tokens)
+	stylesheet.Accept(visitor)
+	return stylesheet, visitor.errors
 }
 
-func (p *Parser) advance() {
-	p.currentToken = p.nextToken
-	if p.position < len(p.tokens) {
-		p.nextToken = p.tokens[p.position]
-		p.position++
+type ParseVisitor struct {
+	tokens       []tokens.Token
+	position     int
+	currentToken tokens.Token
+	nextToken    tokens.Token
+	errors       []ParseError
+}
+
+func NewParseVisitor(tokens []tokens.Token) *ParseVisitor {
+	pv := &ParseVisitor{
+		tokens:   tokens,
+		position: 0,
+		errors:   make([]ParseError, 0),
+	}
+	pv.advance() // Load the first token
+	pv.advance() // Load the second token (now in nextToken)
+	return pv
+}
+
+func (pv *ParseVisitor) advance() {
+	pv.currentToken = pv.nextToken
+	if pv.position < len(pv.tokens) {
+		pv.nextToken = pv.tokens[pv.position]
+		pv.position++
 	} else {
-		p.nextToken = tokens.Token{Type: tokens.EOF}
+		pv.nextToken = tokens.Token{Type: tokens.EOF}
 	}
 }
 
-func (p *Parser) currentTokenIs(tokenType tokens.TokenType) bool {
-	return p.currentToken.Type == tokenType
+func (pv *ParseVisitor) currentTokenIs(tokenType tokens.TokenType) bool {
+	return pv.currentToken.Type == tokenType
 }
 
-func (p *Parser) nextTokenIs(tokenType tokens.TokenType) bool {
-	return p.nextToken.Type == tokenType
+func (pv *ParseVisitor) nextTokenIs(tokenType tokens.TokenType) bool {
+	return pv.nextToken.Type == tokenType
 }
 
-func (p *Parser) consume(tokenType tokens.TokenType, errorMessage string) bool {
-	if p.currentTokenIs(tokenType) {
-		p.advance()
+func (pv *ParseVisitor) consume(tokenType tokens.TokenType, errorMessage string) bool {
+	if pv.currentTokenIs(tokenType) {
+		pv.advance()
 		return true
 	}
-	p.addError(errorMessage, p.currentToken)
+	pv.addError(errorMessage, pv.currentToken)
 	return false
 }
 
-func (p *Parser) addError(message string, token tokens.Token) {
-	err := p.getParseError()
-	err.Message = message
-	err.Line = token.Line
-	err.Column = token.Column
-	err.TokenLit = append(err.TokenLit[:0], token.Literal...)
-	p.errors = append(p.errors, *err)
-	p.putParseError(err)
+func (pv *ParseVisitor) addError(message string, token tokens.Token) {
+	pv.errors = append(pv.errors, ParseError{
+		Message:  message,
+		Line:     token.Line,
+		Column:   token.Column,
+		TokenLit: token.Literal,
+	})
 }
 
-func (p *Parser) parseStylesheet() {
-	for !p.currentTokenIs(tokens.EOF) {
-		switch p.currentToken.Type {
+func (pv *ParseVisitor) VisitStylesheet(s *Stylesheet) {
+	for !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
 		case tokens.COMMENT:
-			p.parseComment()
+			comment := &Comment{Text: pv.currentToken.Literal}
+			comment.Accept(pv)
+			s.Rules = append(s.Rules, comment)
+			pv.advance()
 		case tokens.DOT, tokens.HASH, tokens.COLON, tokens.DBLCOLON, tokens.IDENT, tokens.LBRACKET:
-			p.parseRule()
+			selector := &Selector{
+				Selectors: make([]SelectorValue, 0),
+				Rules:     make([]Node, 0),
+			}
+			selector.Accept(pv)
+			s.Rules = append(s.Rules, selector)
+		case tokens.AT:
+			atRule := &AtRule{
+				Name:  pv.nextToken.Literal,
+				Query: nil,
+				Rules: make([]Node, 0),
+			}
+			atRule.Accept(pv)
+			s.Rules = append(s.Rules, atRule)
 		default:
-			p.addError("Unexpected token at stylesheet level", p.currentToken)
-			p.advance()
+			pv.addError("Unexpected token at stylesheet level", pv.currentToken)
+			pv.advance()
 		}
 	}
 }
 
-func (p *Parser) parseComment() {
-	comment := &Comment{Text: p.currentToken.Literal}
-	p.stylesheet.Rules = append(p.stylesheet.Rules, comment)
-	p.advance()
+func (pv *ParseVisitor) VisitSelector(s *Selector) {
+	pv.parseSelector(s)
+	pv.parseDeclarationBlock(s)
 }
 
-func (p *Parser) parseRule() {
-	selector := p.parseSelector()
-	if len(selector.Selectors) == 0 {
-		p.skipToNextRule()
+func (pv *ParseVisitor) VisitDeclaration(d *Declaration) {
+	// This method might not be needed if declarations are always handled within selectors
+}
+
+func (pv *ParseVisitor) VisitAtRule(a *AtRule) {
+	pv.advance() // Consume '@'
+	pv.advance() // Consume the at-rule name
+
+	switch string(a.Name) {
+	case "media":
+		a.Query = pv.parseMediaQuery()
+	// Add cases for other at-rules as needed
+	default:
+		pv.addError("Unsupported at-rule", pv.currentToken)
 		return
 	}
 
-	p.parseDeclarationBlock(selector)
-	p.stylesheet.Rules = append(p.stylesheet.Rules, selector)
-}
-
-func (p *Parser) parseSelector() *Selector {
-	selector := &Selector{
-		Selectors: make([]SelectorValue, 0),
-		Rules:     make([]Node, 0),
+	if !pv.consume(tokens.LBRACE, "Expected '{' after at-rule query") {
+		return
 	}
 
-	for !p.currentTokenIs(tokens.EOF) && !p.currentTokenIs(tokens.LBRACE) {
-		switch p.currentToken.Type {
+	// Parse the content of the media block
+	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
+		case tokens.COMMENT:
+			comment := &Comment{Text: pv.currentToken.Literal}
+			comment.Accept(pv)
+			a.Rules = append(a.Rules, comment)
+		case tokens.DOT, tokens.HASH, tokens.COLON, tokens.DBLCOLON, tokens.IDENT, tokens.LBRACKET:
+			selector := &Selector{
+				Selectors: make([]SelectorValue, 0),
+				Rules:     make([]Node, 0),
+			}
+			pv.parseSelector(selector)
+			pv.parseDeclarationBlock(selector)
+			a.Rules = append(a.Rules, selector)
+		default:
+			pv.addError("Unexpected token in at-rule block", pv.currentToken)
+			pv.advance()
+		}
+	}
+
+	pv.consume(tokens.RBRACE, "Expected '}' to close at-rule block")
+}
+
+func (pv *ParseVisitor) VisitComment(c *Comment) {
+	// Nothing to do here, as comments are simple tokens
+}
+
+func (pv *ParseVisitor) parseSelector(s *Selector) {
+	for !pv.currentTokenIs(tokens.EOF) && !pv.currentTokenIs(tokens.LBRACE) {
+		switch pv.currentToken.Type {
 		case tokens.IDENT:
-			selector.Selectors = append(selector.Selectors, SelectorValue{
+			s.Selectors = append(s.Selectors, SelectorValue{
 				Type:  Element,
-				Value: p.currentToken.Literal,
+				Value: pv.currentToken.Literal,
 			})
-			p.advance()
+			pv.advance()
 		case tokens.DOT:
-			if p.nextTokenIs(tokens.IDENT) {
-				p.advance() // Consume the dot
-				selector.Selectors = append(selector.Selectors, SelectorValue{
+			if pv.nextTokenIs(tokens.IDENT) {
+				pv.advance() // Consume the dot
+				s.Selectors = append(s.Selectors, SelectorValue{
 					Type:  Class,
-					Value: append([]byte("."), p.currentToken.Literal...),
+					Value: append([]byte("."), pv.currentToken.Literal...),
 				})
-				p.advance() // Consume the identifier
+				pv.advance() // Consume the identifier
 			} else {
-				p.addError("Expected identifier after '.'", p.nextToken)
-				p.advance() // Skip the dot
+				pv.addError("Expected identifier after '.'", pv.nextToken)
+				pv.advance() // Skip the dot
 			}
 		case tokens.HASH:
-			if p.nextTokenIs(tokens.IDENT) {
-				p.advance() // Consume the hash
-				selector.Selectors = append(selector.Selectors, SelectorValue{
+			if pv.nextTokenIs(tokens.IDENT) {
+				pv.advance() // Consume the hash
+				s.Selectors = append(s.Selectors, SelectorValue{
 					Type:  ID,
-					Value: append([]byte("#"), p.currentToken.Literal...),
+					Value: append([]byte("#"), pv.currentToken.Literal...),
 				})
-				p.advance() // Consume the identifier
+				pv.advance() // Consume the identifier
 			} else {
-				p.addError("Expected identifier after '#'", p.nextToken)
-				p.advance() // Skip the hash
+				pv.addError("Expected identifier after '#'", pv.nextToken)
+				pv.advance() // Skip the hash
 			}
 		case tokens.LBRACKET:
-			attrSelector := p.parseAttributeSelector()
+			attrSelector := pv.parseAttributeSelector()
 			if attrSelector != nil {
-				selector.Selectors = append(selector.Selectors, *attrSelector)
+				s.Selectors = append(s.Selectors, *attrSelector)
 			}
 		case tokens.COLON, tokens.DBLCOLON:
-			pseudoSelector := p.parsePseudoSelector()
+			pseudoSelector := pv.parsePseudoSelector()
 			if pseudoSelector != nil {
-				selector.Selectors = append(selector.Selectors, *pseudoSelector)
+				s.Selectors = append(s.Selectors, *pseudoSelector)
 			}
 		case tokens.COMMA, tokens.GREATER, tokens.PLUS, tokens.TILDE:
-			selector.Selectors = append(selector.Selectors, SelectorValue{
+			s.Selectors = append(s.Selectors, SelectorValue{
 				Type:  Combinator,
-				Value: p.currentToken.Literal,
+				Value: pv.currentToken.Literal,
 			})
-			p.advance()
+			pv.advance()
 		default:
-			p.addError("Unexpected token in selector", p.currentToken)
-			p.advance() // Skip unexpected token
+			pv.addError("Unexpected token in selector", pv.currentToken)
+			pv.advance() // Skip unexpected token
 		}
-	}
-
-	return selector
-}
-
-func (p *Parser) parseAttributeSelector() *SelectorValue {
-	var attrBuilder bytes.Buffer
-	attrBuilder.WriteByte('[')
-
-	p.advance() // Consume '['
-	for !p.currentTokenIs(tokens.RBRACKET) && !p.currentTokenIs(tokens.EOF) {
-		attrBuilder.Write(p.currentToken.Literal)
-		p.advance()
-	}
-
-	if p.currentTokenIs(tokens.RBRACKET) {
-		attrBuilder.WriteByte(']')
-		p.advance() // Consume ']'
-		return &SelectorValue{
-			Type:  Attribute,
-			Value: attrBuilder.Bytes(),
-		}
-	} else {
-		p.addError("Expected closing bracket for attribute selector", p.currentToken)
-		return nil
 	}
 }
 
-func (p *Parser) parsePseudoSelector() *SelectorValue {
-	pseudo := p.currentToken.Literal
-	p.advance() // Consume the colon(s)
-	if p.currentTokenIs(tokens.IDENT) {
-		pseudo = append(pseudo, p.currentToken.Literal...)
-		p.advance()
-		return &SelectorValue{
-			Type:  Pseudo,
-			Value: pseudo,
-		}
-	} else {
-		p.addError("Expected identifier after pseudo-selector", p.currentToken)
-		return nil
-	}
-}
-
-func (p *Parser) parseDeclarationBlock(selector *Selector) {
-	if !p.consume(tokens.LBRACE, "Expected '{' at the start of declaration block") {
+func (pv *ParseVisitor) parseDeclarationBlock(s *Selector) {
+	if !pv.consume(tokens.LBRACE, "Expected '{' after selector") {
 		return
 	}
 
-	for !p.currentTokenIs(tokens.RBRACE) && !p.currentTokenIs(tokens.EOF) {
-		declaration := p.parseDeclaration()
+	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		declaration := pv.parseDeclaration()
 		if declaration != nil {
-			selector.Rules = append(selector.Rules, declaration)
+			s.Rules = append(s.Rules, declaration)
 		}
 
-		if p.currentTokenIs(tokens.SEMICOLON) {
-			p.advance() // Consume ';'
+		if pv.currentTokenIs(tokens.SEMICOLON) {
+			pv.advance() // Consume ';'
 		}
 	}
 
-	if !p.consume(tokens.RBRACE, "Expected '}' at the end of declaration block") {
-		p.skipToNextRule()
-	}
+	pv.consume(tokens.RBRACE, "Expected '}' at the end of declaration block")
 }
 
-func (p *Parser) parseDeclaration() *Declaration {
-	if !p.currentTokenIs(tokens.IDENT) {
-		p.addError("Expected property name", p.currentToken)
-		p.skipToNextSemicolonOrBrace()
+func (pv *ParseVisitor) parseDeclaration() *Declaration {
+	if !pv.currentTokenIs(tokens.IDENT) {
+		pv.addError("Expected property name", pv.currentToken)
+		pv.skipToNextSemicolonOrBrace()
 		return nil
 	}
 
 	declaration := &Declaration{
-		Key:   p.currentToken.Literal,
+		Key:   pv.currentToken.Literal,
 		Value: make([][]byte, 0),
 	}
-	p.advance() // Consume property name
+	pv.advance() // Consume property name
 
-	if !p.consume(tokens.COLON, "Expected ':' after property name") {
-		p.skipToNextSemicolonOrBrace()
+	if !pv.consume(tokens.COLON, "Expected ':' after property name") {
+		pv.skipToNextSemicolonOrBrace()
 		return nil
 	}
 
 	// Parse declaration value
-	for !p.currentTokenIs(tokens.SEMICOLON) && !p.currentTokenIs(tokens.RBRACE) && !p.currentTokenIs(tokens.EOF) {
-		switch p.currentToken.Type {
+	for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
 		case tokens.IDENT, tokens.NUMBER, tokens.PERCENTAGE, tokens.STRING, tokens.HASH:
-			declaration.Value = append(declaration.Value, p.currentToken.Literal)
+			declaration.Value = append(declaration.Value, pv.currentToken.Literal)
 		case tokens.LPAREN:
-			value := p.parseFunction()
+			value := pv.parseFunction()
 			if value != nil {
 				declaration.Value = append(declaration.Value, value...)
 			}
 		default:
-			p.addError("Unexpected tokens.in declaration value", p.currentToken)
-			p.skipToNextSemicolonOrBrace()
+			pv.addError("Unexpected token in declaration value", pv.currentToken)
+			pv.skipToNextSemicolonOrBrace()
 			return nil
 		}
-		p.advance()
+		pv.advance()
 	}
 
 	return declaration
 }
 
-func (p *Parser) skipToNextSemicolonOrBrace() {
-	for !p.currentTokenIs(tokens.SEMICOLON) && !p.currentTokenIs(tokens.RBRACE) && !p.currentTokenIs(tokens.EOF) {
-		p.advance()
-	}
-}
-
-func (p *Parser) parseFunction() [][]byte {
+func (pv *ParseVisitor) parseFunction() [][]byte {
 	var function [][]byte
-	function = append(function, p.currentToken.Literal) // '('
-	p.advance()
+	function = append(function, pv.currentToken.Literal) // '('
+	pv.advance()
 
-	for !p.currentTokenIs(tokens.RPAREN) && !p.currentTokenIs(tokens.EOF) {
-		switch p.currentToken.Type {
+	for !pv.currentTokenIs(tokens.RPAREN) && !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
 		case tokens.IDENT, tokens.NUMBER, tokens.PERCENTAGE, tokens.STRING, tokens.HASH, tokens.COMMA:
-			function = append(function, p.currentToken.Literal)
+			function = append(function, pv.currentToken.Literal)
 		default:
-			p.addError("Unexpected tokens.in function", p.currentToken)
+			pv.addError("Unexpected token in function", pv.currentToken)
 			return function
 		}
-		p.advance()
+		pv.advance()
 	}
 
-	if p.consume(tokens.RPAREN, "Expected ')' to close function") {
-		function = append(function, p.currentToken.Literal)
+	if pv.consume(tokens.RPAREN, "Expected ')' to close function") {
+		function = append(function, pv.currentToken.Literal)
 	}
 
 	return function
 }
 
-func (p *Parser) skipToNextRule() {
-	for !p.currentTokenIs(tokens.EOF) && !p.currentTokenIs(tokens.RBRACE) {
-		p.advance()
+func (pv *ParseVisitor) parseMediaQuery() *MediaQuery {
+	mediaQuery := &MediaQuery{
+		Queries: make([]MediaQueryExpression, 0),
 	}
-	if p.currentTokenIs(tokens.RBRACE) {
-		p.advance() // Consume the '}'
+
+	for !pv.currentTokenIs(tokens.LBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		expr := pv.parseMediaQueryExpression()
+		mediaQuery.Queries = append(mediaQuery.Queries, expr)
+
+		if pv.currentTokenIs(tokens.COMMA) {
+			pv.advance() // Consume comma
+		} else {
+			break
+		}
+	}
+
+	return mediaQuery
+}
+
+func (pv *ParseVisitor) parseMediaQueryExpression() MediaQueryExpression {
+	expr := MediaQueryExpression{
+		Features: make([]MediaFeature, 0),
+	}
+
+	if pv.currentTokenIs(tokens.IDENT) {
+		switch string(pv.currentToken.Literal) {
+		case "not":
+			expr.Not = true
+			pv.advance()
+		case "only":
+			expr.Only = true
+			pv.advance()
+		}
+	}
+
+	if pv.currentTokenIs(tokens.IDENT) {
+		expr.MediaType = pv.currentToken.Literal
+		pv.advance()
+	}
+
+	for pv.currentTokenIs(tokens.LPAREN) || (pv.currentTokenIs(tokens.IDENT) && string(pv.currentToken.Literal) == "and") {
+		if pv.currentTokenIs(tokens.IDENT) && string(pv.currentToken.Literal) == "and" {
+			pv.advance() // Consume 'and'
+		}
+		feature := pv.parseMediaFeature()
+		if feature != nil {
+			expr.Features = append(expr.Features, *feature)
+		}
+	}
+
+	return expr
+}
+
+func (pv *ParseVisitor) parseMediaFeature() *MediaFeature {
+	if !pv.consume(tokens.LPAREN, "Expected '(' for media feature") {
+		return nil
+	}
+
+	feature := &MediaFeature{}
+
+	if !pv.currentTokenIs(tokens.IDENT) {
+		pv.addError("Expected media feature name", pv.currentToken)
+		pv.skipToNextRule()
+		return nil
+	}
+
+	feature.Name = pv.currentToken.Literal
+	pv.advance()
+
+	if pv.currentTokenIs(tokens.COLON) {
+		pv.advance() // Consume ':'
+		if pv.currentTokenIs(tokens.IDENT) || pv.currentTokenIs(tokens.NUMBER) {
+			feature.Value = pv.currentToken.Literal
+			pv.advance()
+
+			// Handle units like 'px'
+			if pv.currentTokenIs(tokens.IDENT) || pv.currentTokenIs(tokens.PERCENTAGE) {
+				feature.Value = append(feature.Value, pv.currentToken.Literal...)
+				pv.advance()
+			}
+		} else {
+			pv.addError("Expected value for media feature", pv.currentToken)
+		}
+	}
+
+	if !pv.consume(tokens.RPAREN, "Expected ')' to close media feature") {
+		return nil
+	}
+
+	return feature
+}
+
+func (pv *ParseVisitor) parseAttributeSelector() *SelectorValue {
+	var attrBuilder strings.Builder
+	attrBuilder.WriteByte('[')
+
+	pv.advance() // Consume '['
+	for !pv.currentTokenIs(tokens.RBRACKET) && !pv.currentTokenIs(tokens.EOF) {
+		attrBuilder.Write(pv.currentToken.Literal)
+		pv.advance()
+	}
+
+	if pv.currentTokenIs(tokens.RBRACKET) {
+		attrBuilder.WriteByte(']')
+		pv.advance() // Consume ']'
+		return &SelectorValue{
+			Type:  Attribute,
+			Value: []byte(attrBuilder.String()),
+		}
+	} else {
+		pv.addError("Expected closing bracket for attribute selector", pv.currentToken)
+		return nil
+	}
+}
+
+func (pv *ParseVisitor) parsePseudoSelector() *SelectorValue {
+	pseudo := pv.currentToken.Literal
+	pv.advance() // Consume the colon(s)
+	if pv.currentTokenIs(tokens.IDENT) {
+		pseudo = append(pseudo, pv.currentToken.Literal...)
+		pv.advance()
+		return &SelectorValue{
+			Type:  Pseudo,
+			Value: pseudo,
+		}
+	} else {
+		pv.addError("Expected identifier after pseudo-selector", pv.currentToken)
+		return nil
+	}
+}
+
+func (pv *ParseVisitor) skipToNextRule() {
+	for !pv.currentTokenIs(tokens.EOF) && !pv.currentTokenIs(tokens.RBRACE) {
+		pv.advance()
+	}
+	if pv.currentTokenIs(tokens.RBRACE) {
+		pv.advance() // Consume the '}'
+	}
+}
+
+func (pv *ParseVisitor) skipToNextSemicolonOrBrace() {
+	for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		pv.advance()
 	}
 }
