@@ -1,6 +1,39 @@
 package parser
 
-import "bytes"
+import (
+	"bytes"
+	"fmt"
+	"strings"
+)
+
+func selectorTypeToString(st SelectorType) string {
+	switch st {
+	case Element:
+		return "Element"
+	case Class:
+		return "Class"
+	case ID:
+		return "ID"
+	case Attribute:
+		return "Attribute"
+	case Pseudo:
+		return "Pseudo"
+	case Combinator:
+		return "Combinator"
+	default:
+		return fmt.Sprintf("Unknown(%d)", st)
+	}
+}
+
+func indentLines(s string, spaces int) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i > 0 {
+			lines[i] = strings.Repeat(" ", spaces) + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 var units = [][]byte{
 	// Absolute length units

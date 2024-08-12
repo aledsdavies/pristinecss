@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/aledsdavies/pristinecss/pkg/lexer"
-	"github.com/google/go-cmp/cmp"
+    "github.com/google/go-cmp/cmp"
 )
 
 // Benchmark for parsing various CSS frameworks
@@ -83,7 +83,7 @@ func TestBasicSelectors(t *testing.T) {
 					&Selector{
 						Selectors: []SelectorValue{{Type: ID, Value: []byte("#main")}},
 						Rules: []Node{
-							&Declaration{Key: []byte("font-size"), Value: [][]byte{[]byte("16"), []byte("px")}},
+							&Declaration{Key: []byte("font-size"), Value: [][]byte{[]byte("16px")}},
 						},
 					},
 				},
@@ -97,7 +97,7 @@ func TestBasicSelectors(t *testing.T) {
 					&Selector{
 						Selectors: []SelectorValue{{Type: Attribute, Value: []byte("[type='text']")}},
 						Rules: []Node{
-							&Declaration{Key: []byte("border"), Value: [][]byte{[]byte("1"), []byte("px"), []byte("solid"), []byte("gray")}},
+							&Declaration{Key: []byte("border"), Value: [][]byte{[]byte("1px"), []byte("solid"), []byte("gray")}},
 						},
 					},
 				},
@@ -125,7 +125,7 @@ func TestComplexSelectors(t *testing.T) {
 							{Type: Class, Value: []byte(".container")},
 						},
 						Rules: []Node{
-							&Declaration{Key: []byte("max-width"), Value: [][]byte{[]byte("1200"), []byte("px")}},
+							&Declaration{Key: []byte("max-width"), Value: [][]byte{[]byte("1200px")}},
 						},
 					},
 				},
@@ -265,9 +265,9 @@ func TestMediaQueries(t *testing.T) {
 			input: "@media screen { body { font-size: 16px; } }",
 			expected: &Stylesheet{
 				Rules: []Node{
-					&AtRule{
+					&MediaAtRule{
 						Name: []byte("media"),
-						Query: &MediaQuery{
+						Query: MediaQuery{
 							Queries: []MediaQueryExpression{
 								{
 									MediaType: []byte("screen"),
@@ -278,7 +278,7 @@ func TestMediaQueries(t *testing.T) {
 							&Selector{
 								Selectors: []SelectorValue{{Type: Element, Value: []byte("body")}},
 								Rules: []Node{
-									&Declaration{Key: []byte("font-size"), Value: [][]byte{[]byte("16"), []byte("px")}},
+									&Declaration{Key: []byte("font-size"), Value: [][]byte{[]byte("16px")}},
 								},
 							},
 						},
@@ -291,9 +291,9 @@ func TestMediaQueries(t *testing.T) {
 			input: "@media (max-width: 600px) { .container { width: 100%; } }",
 			expected: &Stylesheet{
 				Rules: []Node{
-					&AtRule{
+					&MediaAtRule{
 						Name: []byte("media"),
-						Query: &MediaQuery{
+						Query: MediaQuery{
 							Queries: []MediaQueryExpression{
 								{
 									Features: []MediaFeature{
@@ -306,7 +306,7 @@ func TestMediaQueries(t *testing.T) {
 							&Selector{
 								Selectors: []SelectorValue{{Type: Class, Value: []byte(".container")}},
 								Rules: []Node{
-									&Declaration{Key: []byte("width"), Value: [][]byte{[]byte("100"), []byte("%")}},
+									&Declaration{Key: []byte("width"), Value: [][]byte{[]byte("100%")}},
 								},
 							},
 						},
@@ -319,9 +319,9 @@ func TestMediaQueries(t *testing.T) {
 			input: "@media screen and (min-width: 768px) and (max-width: 1024px) { .sidebar { display: none; } }",
 			expected: &Stylesheet{
 				Rules: []Node{
-					&AtRule{
+					&MediaAtRule{
 						Name: []byte("media"),
-						Query: &MediaQuery{
+						Query: MediaQuery{
 							Queries: []MediaQueryExpression{
 								{
 									MediaType: []byte("screen"),
@@ -349,83 +349,196 @@ func TestMediaQueries(t *testing.T) {
 }
 
 func TestKeyframes(t *testing.T) {
-    tests := []struct {
-        name     string
-        input    string
-        expected *Stylesheet
-    }{
-        {
-            name: "Basic @keyframes rule",
-            input: `@keyframes slide-in {
+	tests := []struct {
+		name     string
+		input    string
+		expected *Stylesheet
+	}{
+		{
+			name: "Basic @keyframes rule",
+			input: `@keyframes slide-in {
                 from { transform: translateX(-100%); }
                 to { transform: translateX(0); }
             }`,
-            expected: &Stylesheet{
-                Rules: []Node{
-                    &AtRule{
-                        Name: []byte("keyframes"),
-                        Query: &KeyframesRule{
-                            Name: []byte("slide-in"),
-                            Stops: []KeyframeStop{
-                                {
-                                    Selectors: [][]byte{[]byte("from")},
-                                    Rules: []Node{
-                                        &Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("-100"), []byte("%"), []byte(")")}},
-                                    },
-                                },
-                                {
-                                    Selectors: [][]byte{[]byte("to")},
-                                    Rules: []Node{
-                                        &Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("0"), []byte(")")}},
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        {
-            name: "@keyframes rule with percentages",
-            input: `@keyframes color-change {
+			expected: &Stylesheet{
+				Rules: []Node{
+					&KeyframesAtRule{
+						Name: []byte("slide-in"),
+						Stops: []KeyframeStop{
+							{
+								Selectors: [][]byte{[]byte("from")},
+								Rules: []Node{
+									&Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("-100%"), []byte(")")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("to")},
+								Rules: []Node{
+									&Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("0"), []byte(")")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "@keyframes rule with percentages",
+			input: `@keyframes color-change {
                 0% { background-color: red; }
                 50% { background-color: green; }
                 100% { background-color: blue; }
             }`,
-            expected: &Stylesheet{
-                Rules: []Node{
-                    &AtRule{
-                        Name: []byte("keyframes"),
-                        Query: &KeyframesRule{
-                            Name: []byte("color-change"),
-                            Stops: []KeyframeStop{
-                                {
-                                    Selectors: [][]byte{[]byte("0"), []byte("%")},
-                                    Rules: []Node{
-                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("red")}},
-                                    },
-                                },
-                                {
-                                    Selectors: [][]byte{[]byte("50"), []byte("%")},
-                                    Rules: []Node{
-                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("green")}},
-                                    },
-                                },
-                                {
-                                    Selectors: [][]byte{[]byte("100"), []byte("%")},
-                                    Rules: []Node{
-                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("blue")}},
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    }
-
-    runTests(t, tests)
+			expected: &Stylesheet{
+				Rules: []Node{
+					&KeyframesAtRule{
+						Name: []byte("color-change"),
+						Stops: []KeyframeStop{
+							{
+								Selectors: [][]byte{[]byte("0%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("red")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("50%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("green")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("100%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("blue")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "@keyframes with multiple selectors per stop",
+			input: `@keyframes multi-step {
+                0%, 100% { opacity: 0; }
+                25%, 75% { opacity: 0.5; }
+                50% { opacity: 1; }
+            }`,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&KeyframesAtRule{
+						Name: []byte("multi-step"),
+						Stops: []KeyframeStop{
+							{
+								Selectors: [][]byte{[]byte("0%"), []byte("100%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("opacity"), Value: [][]byte{[]byte("0")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("25%"), []byte("75%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("opacity"), Value: [][]byte{[]byte("0.5")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("50%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("opacity"), Value: [][]byte{[]byte("1")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "@keyframes with vendor prefix",
+			input: `@-webkit-keyframes bounce {
+                0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+                40% { transform: translateY(-30px); }
+                60% { transform: translateY(-15px); }
+            }`,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&KeyframesAtRule{
+                        WebKitPrefix: true,
+						Name: []byte("bounce"),
+						Stops: []KeyframeStop{
+							{
+								Selectors: [][]byte{[]byte("0%"), []byte("20%"), []byte("50%"), []byte("80%"), []byte("100%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateY"), []byte("("), []byte("0"), []byte(")")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("40%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateY"), []byte("("), []byte("-30px"), []byte(")")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("60%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateY"), []byte("("), []byte("-15px"), []byte(")")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "@keyframes with multiple properties per stop",
+			input: `@keyframes complex-animation {
+                from {
+                    left: 0;
+                    top: 0;
+                }
+                50% {
+                    left: 50%;
+                    top: 100px;
+                    background-color: blue;
+                }
+                to {
+                    left: 100%;
+                    top: 0;
+                }
+            }`,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&KeyframesAtRule{
+						Name: []byte("complex-animation"),
+						Stops: []KeyframeStop{
+							{
+								Selectors: [][]byte{[]byte("from")},
+								Rules: []Node{
+									&Declaration{Key: []byte("left"), Value: [][]byte{[]byte("0")}},
+									&Declaration{Key: []byte("top"), Value: [][]byte{[]byte("0")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("50%")},
+								Rules: []Node{
+									&Declaration{Key: []byte("left"), Value: [][]byte{[]byte("50%")}},
+									&Declaration{Key: []byte("top"), Value: [][]byte{[]byte("100px")}},
+									&Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("blue")}},
+								},
+							},
+							{
+								Selectors: [][]byte{[]byte("to")},
+								Rules: []Node{
+									&Declaration{Key: []byte("left"), Value: [][]byte{[]byte("100%")}},
+									&Declaration{Key: []byte("top"), Value: [][]byte{[]byte("0")}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	runTests(t, tests)
 }
 
 func runTests(t *testing.T, tests []struct {
