@@ -2,6 +2,7 @@
 PROJECT_NAME := stylocss
 GO_FILES := $(shell find . -type f -name '*.go')
 GO := $(shell command -v go 2> /dev/null)
+TEST_PATH ?= ./...
 
 # Default target
 .PHONY: help
@@ -12,7 +13,7 @@ help:
 	@echo "Targets:"
 	@echo "  all              Build the project"
 	@echo "  build            Build the project"
-	@echo "  test             Runs the tests for the project"
+	@echo "  test [path]      Runs the tests for the project. Default: ./..."
 	@echo "  clean            Clean the project"
 	@echo "  deps             Install dependencies"
 	@echo "  help             Display this help message"
@@ -30,7 +31,8 @@ clean:
 # Run tests
 .PHONY: test
 test: check-deps
-	$(GO) test -json ./... | gotestfmt
+	@echo "Running tests for: $(TEST_PATH)"
+	@$(GO) test -json $(TEST_PATH) | gotestfmt
 
 # Install dependencies
 .PHONY: deps

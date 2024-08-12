@@ -151,6 +151,7 @@ type AtType int
 
 const (
 	MEDIA AtType = iota
+    KEYFRAMES
 	// Add more at-rule types here as needed
 )
 
@@ -240,6 +241,51 @@ func (mf MediaFeature) String() string {
 		valueStr = "nil"
 	}
 	return fmt.Sprintf("MediaFeature{Name: %q, Value: %s}", mf.Name, valueStr)
+}
+
+type KeyframesRule struct {
+	Name  []byte
+	Stops []KeyframeStop
+}
+
+func (kr KeyframesRule) AtType() AtType { return KEYFRAMES }
+
+func (kr KeyframesRule) String() string {
+	var sb strings.Builder
+	sb.WriteString("KeyframesRule{\n")
+	sb.WriteString(fmt.Sprintf("  Name: %q,\n", kr.Name))
+	sb.WriteString("  Stops: [\n")
+	for _, stop := range kr.Stops {
+		sb.WriteString(indentLines(stop.String(), 4) + ",\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
+}
+
+type KeyframeStop struct {
+	Selectors [][]byte // Could be percentages or "from"/"to"
+	Rules     []Node   // Declarations for this keyframe stop
+}
+
+func (ks KeyframeStop) String() string {
+	var sb strings.Builder
+	sb.WriteString("KeyframeStop{\n")
+	sb.WriteString("  Selectors: [")
+	for i, selector := range ks.Selectors {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%q", selector))
+	}
+	sb.WriteString("],\n")
+	sb.WriteString("  Rules: [\n")
+	for _, rule := range ks.Rules {
+		sb.WriteString(indentLines(rule.String(), 4) + ",\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
 }
 
 func selectorTypeToString(st SelectorType) string {

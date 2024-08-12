@@ -348,6 +348,86 @@ func TestMediaQueries(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestKeyframes(t *testing.T) {
+    tests := []struct {
+        name     string
+        input    string
+        expected *Stylesheet
+    }{
+        {
+            name: "Basic @keyframes rule",
+            input: `@keyframes slide-in {
+                from { transform: translateX(-100%); }
+                to { transform: translateX(0); }
+            }`,
+            expected: &Stylesheet{
+                Rules: []Node{
+                    &AtRule{
+                        Name: []byte("keyframes"),
+                        Query: &KeyframesRule{
+                            Name: []byte("slide-in"),
+                            Stops: []KeyframeStop{
+                                {
+                                    Selectors: [][]byte{[]byte("from")},
+                                    Rules: []Node{
+                                        &Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("-100"), []byte("%"), []byte(")")}},
+                                    },
+                                },
+                                {
+                                    Selectors: [][]byte{[]byte("to")},
+                                    Rules: []Node{
+                                        &Declaration{Key: []byte("transform"), Value: [][]byte{[]byte("translateX"), []byte("("), []byte("0"), []byte(")")}},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        {
+            name: "@keyframes rule with percentages",
+            input: `@keyframes color-change {
+                0% { background-color: red; }
+                50% { background-color: green; }
+                100% { background-color: blue; }
+            }`,
+            expected: &Stylesheet{
+                Rules: []Node{
+                    &AtRule{
+                        Name: []byte("keyframes"),
+                        Query: &KeyframesRule{
+                            Name: []byte("color-change"),
+                            Stops: []KeyframeStop{
+                                {
+                                    Selectors: [][]byte{[]byte("0"), []byte("%")},
+                                    Rules: []Node{
+                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("red")}},
+                                    },
+                                },
+                                {
+                                    Selectors: [][]byte{[]byte("50"), []byte("%")},
+                                    Rules: []Node{
+                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("green")}},
+                                    },
+                                },
+                                {
+                                    Selectors: [][]byte{[]byte("100"), []byte("%")},
+                                    Rules: []Node{
+                                        &Declaration{Key: []byte("background-color"), Value: [][]byte{[]byte("blue")}},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    runTests(t, tests)
+}
+
 func runTests(t *testing.T, tests []struct {
 	name     string
 	input    string

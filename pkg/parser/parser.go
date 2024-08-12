@@ -126,6 +126,9 @@ func (pv *ParseVisitor) VisitAtRule(a *AtRule) {
 	switch string(a.Name) {
 	case "media":
 		a.Query = pv.parseMediaQuery()
+	case "keyframes":
+		a.Query = pv.parseKeyframesRule()
+        return
 	// Add cases for other at-rules as needed
 	default:
 		pv.addError("Unsupported at-rule", pv.currentToken)
@@ -295,7 +298,7 @@ func (pv *ParseVisitor) parseFunction() [][]byte {
 	}
 
 	if pv.consume(tokens.RPAREN, "Expected ')' to close function") {
-		function = append(function, pv.currentToken.Literal)
+		function = append(function, []byte(")"))
 	}
 
 	return function
@@ -430,6 +433,76 @@ func (pv *ParseVisitor) parsePseudoSelector() *SelectorValue {
 		pv.addError("Expected identifier after pseudo-selector", pv.currentToken)
 		return nil
 	}
+}
+
+func (pv *ParseVisitor) parseKeyframesRule() *KeyframesRule {
+	keyframesRule := &KeyframesRule{
+		Stops: make([]KeyframeStop, 0),
+	}
+
+	if !pv.currentTokenIs(tokens.IDENT) {
+		pv.addError("Expected keyframes name", pv.currentToken)
+		return nil
+	}
+
+	keyframesRule.Name = pv.currentToken.Literal
+	pv.advance()
+
+	if !pv.consume(tokens.LBRACE, "Expected '{' after @keyframes name") {
+		return nil
+	}
+
+	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		stop := pv.parseKeyframeStop()
+		if stop != nil {
+			keyframesRule.Stops = append(keyframesRule.Stops, *stop)
+		}
+	}
+
+	pv.consume(tokens.RBRACE, "Expected '}' to close @keyframes block")
+
+	return keyframesRule
+}
+
+func (pv *ParseVisitor) parseKeyframeStop() *KeyframeStop {
+	stop := &KeyframeStop{
+		Selectors: make([][]byte, 0),
+		Rules:     make([]Node, 0),
+	}
+
+	// Parse selectors
+	for !pv.currentTokenIs(tokens.LBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
+		case tokens.PERCENTAGE, tokens.IDENT, tokens.NUMBER:
+			stop.Selectors = append(stop.Selectors, pv.currentToken.Literal)
+			pv.advance()
+		case tokens.COMMA:
+			pv.advance()
+		default:
+			pv.addError("Unexpected token in keyframe selector", pv.currentToken)
+			pv.advance()
+		}
+	}
+
+	if !pv.consume(tokens.LBRACE, "Expected '{' after keyframe selector") {
+		return nil
+	}
+
+	// Parse declarations
+	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		declaration := pv.parseDeclaration()
+		if declaration != nil {
+			stop.Rules = append(stop.Rules, declaration)
+		}
+
+		if pv.currentTokenIs(tokens.SEMICOLON) {
+			pv.advance() // Consume ';'
+		}
+	}
+
+	pv.consume(tokens.RBRACE, "Expected '}' at the end of keyframe block")
+
+	return stop
 }
 
 func (pv *ParseVisitor) skipToNextRule() {
