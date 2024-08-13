@@ -75,7 +75,6 @@ func (pv *ParseVisitor) VisitSelector(s *Selector) {
 		}
 		declaration := &Declaration{
 			Key:   pv.currentToken.Literal,
-			Value: make([][]byte, 0),
 		}
 		declaration.Accept(pv)
 		s.Rules = append(s.Rules, declaration)

@@ -18,6 +18,7 @@ const (
 	NodeFunction
 	NodeComment
     NodeKeyframeStop
+    NodeValue
 )
 
 type Node interface {

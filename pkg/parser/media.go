@@ -17,7 +17,7 @@ type MediaAtRule struct {
 
 func (m *MediaAtRule) Type() NodeType { return NodeAtRule }
 
-func (m *MediaAtRule) AtType() AtType { return MEDIA }
+func (m *MediaAtRule) AtType() AtType { return AtRuleMedia }
 
 func (m *MediaAtRule) Accept(v Visitor) { v.VisitMediaAtRule(m) }
 

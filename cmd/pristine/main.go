@@ -38,7 +38,7 @@ func LoadedFiles(ctx context.Context) []string {
 func main() {
 	processor.Process("./", processor.WithVerbose(true))
 }
-
+[]byt
 /*
 func main() {
 	tmpl, err := template.New("cssTemplate").Parse(templateString) // templateString is your template defined earlier

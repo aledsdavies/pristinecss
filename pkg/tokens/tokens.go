@@ -11,6 +11,7 @@ const (
 	NUMBER  = "NUMBER"
 	STRING  = "STRING"
 	COLOR   = "COLOR"
+	URI     = "URI"
 
 	// Constructs
 

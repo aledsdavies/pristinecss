@@ -231,6 +231,19 @@ func (l *lexer) nextToken() *tokens.Token {
 	case DOUBLEQUOTE, SINGLEQUOTE:
 		tok.Type = tokens.STRING
 		l.readString()
+	case 'u', 'U':
+		if l.matchKeyword("url(") {
+			tok.Type = tokens.URI
+			l.readChar() // consume '('
+			if l.matchKeyword("data:") {
+				l.readDataURI()
+			} else {
+				l.readURL()
+			}
+		} else {
+			tok.Type = tokens.IDENT
+			l.readIdentifier()
+		}
 	default:
 		if isLetter[l.ch] {
 			tok.Type = tokens.IDENT
@@ -422,6 +435,83 @@ func (l *lexer) readComment() {
 			break
 		}
 	}
+}
+
+func (l *lexer) readURL() {
+	// Skip whitespace after 'url('
+	l.skipWhitespace()
+	// Read "url"
+	for i := 0; i < 3; i++ {
+		l.readChar()
+	}
+
+	// Check if the URL is quoted
+	if l.ch == '"' || l.ch == '\'' {
+		quote := l.ch
+		l.readChar() // consume opening quote
+		for l.ch != quote && l.ch != EOF {
+			if l.ch == '\\' {
+				l.readChar() // consume backslash
+				if l.ch != EOF {
+					l.readChar() // consume escaped character
+				}
+			} else {
+				l.readChar()
+			}
+		}
+		if l.ch == quote {
+			l.readChar() // consume closing quote
+		}
+	} else {
+		// Unquoted URL
+		parenCount := 1
+		for parenCount > 0 && l.ch != EOF {
+			if l.ch == '(' {
+				parenCount++
+			} else if l.ch == ')' {
+				parenCount--
+			} else {
+				l.readChar()
+			}
+		}
+	}
+
+	// Skip whitespace before closing paren
+	l.skipWhitespace()
+}
+
+func (l *lexer) readDataURI() {
+	// Read "data:"
+	for i := 0; i < 5; i++ {
+		l.readChar()
+	}
+
+	// Read MIME type and encoding
+	for l.ch != ',' && l.ch != EOF {
+		l.readChar()
+	}
+
+	// Read the actual data
+	if l.ch == ',' {
+		l.readChar() // consume comma
+		for l.ch != ')' && l.ch != EOF {
+			if l.ch == '%' {
+				// Handle percent-encoding
+				l.readChar()
+				l.readChar()
+				l.readChar()
+			} else {
+				l.readChar()
+			}
+		}
+	}
+}
+
+func (l *lexer) matchKeyword(keyword string) bool {
+	if len(l.input[l.position:]) < len(keyword) {
+		return false
+	}
+	return bytes.EqualFold(l.input[l.position:l.position+len(keyword)], []byte(keyword))
 }
 
 func (l *lexer) skipWhitespace() {
