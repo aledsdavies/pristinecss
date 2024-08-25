@@ -61,60 +61,6 @@ func (pv *ParseVisitor) parseAtRule() Node {
 	}
 }
 
-// TODO add supports conditions
-type ImportAtRule struct {
-    URL     Value
-    Layer   Value
-    Media   MediaQuery
-}
-
-func (r *ImportAtRule) Type() NodeType   { return NodeAtRule }
-func (r *ImportAtRule) AtType() AtType   { return AtRuleImport }
-func (r *ImportAtRule) Accept(v Visitor) { v.VisitImportAtRule(r) }
-func (r *ImportAtRule) String() string {
-    var sb strings.Builder
-    sb.WriteString("ImportAtRule{\n")
-    sb.WriteString(fmt.Sprintf("  URL: %s,\n", r.URL.String()))
-    if r.Layer != nil {
-        sb.WriteString(fmt.Sprintf("  Layer: %s,\n", r.Layer.String()))
-    }
-    if len(r.Media.Queries) > 0 {
-        sb.WriteString(fmt.Sprintf("  Media: %s,\n", r.Media.String()))
-    }
-    sb.WriteString("}")
-    return sb.String()
-}
-
-func (pv *ParseVisitor) VisitImportAtRule(r *ImportAtRule) {
-    pv.advance() // Consume 'import'
-    if pv.currentTokenIs(tokens.URI) || pv.currentTokenIs(tokens.STRING) {
-        r.URL = pv.parseValue()
-    } else {
-        pv.addError("Expected string or URI after @import", pv.currentToken)
-        return
-    }
-
-    for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.EOF) {
-        currTok := string(pv.currentToken.Literal)
-        switch {
-        case pv.currentTokenIs(tokens.IDENT) && currTok == "layer":
-            if pv.currentTokenIs(tokens.LPAREN) {
-                r.Layer = pv.parseValue() // This should parse the function-like syntax
-            } else {
-                pv.advance()
-                r.Layer = &BasicValue{Value: []byte("layer")}
-            }
-        case pv.currentTokenIs(tokens.IDENT) || pv.currentTokenIs(tokens.LPAREN):
-            r.Media = *pv.parseMediaQuery()
-        default:
-            pv.addError("Unexpected token in @import rule", pv.currentToken)
-            return
-        }
-    }
-
-    pv.consume(tokens.SEMICOLON, "Expected ';' after @import rule")
-}
-
 type FontFaceAtRule struct {
 	Declarations []Declaration
 }
@@ -144,7 +90,7 @@ func (pv *ParseVisitor) VisitFontFaceAtRule(r *FontFaceAtRule) {
 
 	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
 		declaration := &Declaration{
-			Key:   pv.currentToken.Literal,
+			Key: pv.currentToken.Literal,
 		}
 		declaration.Accept(pv)
 		r.Declarations = append(r.Declarations, *declaration)

@@ -36,7 +36,7 @@ func (bv *BasicValue) String() string {
 
 type StringValue struct {
 	SingleQuote bool
-	Value      []byte
+	Value       []byte
 }
 
 func (bv *StringValue) ValueType() ValueType { return String }
@@ -70,31 +70,39 @@ func (fv *FunctionValue) String() string {
 }
 
 func (pv *ParseVisitor) parseValue() Value {
-    var value Value
-    switch pv.currentToken.Type {
-    case tokens.NUMBER:
-        value = pv.parseNumberValue()
-    case tokens.IDENT:
-        if pv.nextTokenIs(tokens.LPAREN) {
-            value = pv.parseFunctionValue()
-        } else {
-            value = &BasicValue{Value: pv.currentToken.Literal}
-            pv.advance()
-        }
-    case tokens.URI:
-        urlContent, singleQuote := extractURLContent(pv.currentToken.Literal)
-        value = &FunctionValue{
-            Name: []byte("url"),
-            Arguments: []Value{&StringValue{SingleQuote: singleQuote, Value: urlContent}},
-        }
-        pv.advance()
-    case tokens.STRING:
-        value = pv.parseStringValue()
-    default:
-        value = &BasicValue{Value: pv.currentToken.Literal}
-        pv.advance()
-    }
-    return value
+	var value Value
+	switch pv.currentToken.Type {
+	case tokens.NUMBER:
+		value = pv.parseNumberValue()
+	case tokens.IDENT:
+		if pv.nextTokenIs(tokens.LPAREN) {
+			value = pv.parseFunctionValue()
+		} else {
+			value = &BasicValue{Value: pv.currentToken.Literal}
+			pv.advance()
+		}
+	case tokens.URI:
+		urlContent, singleQuote, quoteless := extractURLContent(pv.currentToken.Literal)
+
+		args := []Value{}
+		if quoteless {
+			args = append(args, &BasicValue{Value: urlContent})
+		} else {
+			args = append(args, &StringValue{SingleQuote: singleQuote, Value: urlContent})
+		}
+
+		value = &FunctionValue{
+			Name:      []byte("url"),
+			Arguments: args,
+		}
+		pv.advance()
+	case tokens.STRING:
+		value = pv.parseStringValue()
+	default:
+		value = &BasicValue{Value: pv.currentToken.Literal}
+		pv.advance()
+	}
+	return value
 }
 
 func (pv *ParseVisitor) parseNumberValue() Value {
@@ -130,35 +138,37 @@ func (pv *ParseVisitor) parseFunctionValue() Value {
 }
 
 func (pv *ParseVisitor) parseStringValue() Value {
-    str := pv.currentToken.Literal
-    singleQuote := str[0] == '\''
-    // Remove the quotes
-    str = str[1 : len(str)-1]
+	str := pv.currentToken.Literal
+	singleQuote := str[0] == '\''
+	// Remove the quotes
+	str = str[1 : len(str)-1]
 
-    value := &StringValue{
-        SingleQuote: singleQuote,
-        Value:       str,
-    }
-    pv.advance()
-    return value
+	value := &StringValue{
+		SingleQuote: singleQuote,
+		Value:       str,
+	}
+	pv.advance()
+	return value
 }
 
 // Helper function to extract the contents of the url() function
-func extractURLContent(uri []byte) ([]byte, bool) {
-    // Remove "url(" from the beginning and ")" from the end
-    content := uri[4 : len(uri)-1]
+func extractURLContent(uri []byte) ([]byte, bool, bool) {
+	// Remove "url(" from the beginning and ")" from the end
+	content := uri[4 : len(uri)-1]
 
-    // Check if the content is quoted
-    singleQuote := false
-    if len(content) >= 2 {
-        if content[0] == '\'' && content[len(content)-1] == '\'' {
-            singleQuote = true
-            content = content[1 : len(content)-1]
-        } else if content[0] == '"' && content[len(content)-1] == '"' {
-            content = content[1 : len(content)-1]
-        }
-    }
+	// Check if the content is quoted
+	singleQuote := false
+	quotless := false
+	if len(content) >= 2 {
+		if content[0] == '\'' && content[len(content)-1] == '\'' {
+			singleQuote = true
+			content = content[1 : len(content)-1]
+		} else if content[0] == '"' && content[len(content)-1] == '"' {
+			content = content[1 : len(content)-1]
+		} else {
+			quotless = true
+		}
+	}
 
-    return content, singleQuote
+	return content, singleQuote, quotless
 }
-

@@ -7,14 +7,14 @@ import (
 )
 
 type ParseError struct {
-	Message  string
-	Line     int
-	Column   int
-	TokenLit []byte
+	Message string
+	Line    int
+	Column  int
+	Token   tokens.Token
 }
 
 func (e ParseError) Error() string {
-	return fmt.Sprintf("line %d, column %d: %s (tokens. %s)", e.Line, e.Column, e.Message, e.TokenLit)
+	return fmt.Sprintf("line %d, column %d: %s (token: %s)\n", e.Line, e.Column, e.Message, e.Token.Type)
 }
 
 func Parse(tokens []tokens.Token) (*Stylesheet, []ParseError) {
@@ -74,10 +74,10 @@ func (pv *ParseVisitor) consume(tokenType tokens.TokenType, errorMessage string)
 
 func (pv *ParseVisitor) addError(message string, token tokens.Token) {
 	pv.errors = append(pv.errors, ParseError{
-		Message:  message,
-		Line:     token.Line,
-		Column:   token.Column,
-		TokenLit: token.Literal,
+		Message: message,
+		Line:    token.Line,
+		Column:  token.Column,
+		Token:   token,
 	})
 }
 
@@ -91,10 +91,10 @@ func (pv *ParseVisitor) skipToNextRule() {
 }
 
 func (pv *ParseVisitor) skipToNextSemicolonOrBrace() {
-    for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
-        pv.advance()
-    }
-    if pv.currentTokenIs(tokens.SEMICOLON) {
-        pv.advance() // Consume the semicolon
-    }
+	for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
+		pv.advance()
+	}
+	if pv.currentTokenIs(tokens.SEMICOLON) {
+		pv.advance() // Consume the semicolon
+	}
 }
