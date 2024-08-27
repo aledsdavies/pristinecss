@@ -9,6 +9,14 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const(
+    Import AtType = "import"
+)
+
+func init() {
+	RegisterAt(Import, visitImportAtRule, func() AtRule { return &ImportAtRule{} })
+}
+
 type ImportAtRule struct {
 	URL      Value
 	Layer    Value
@@ -53,8 +61,7 @@ type SupportsGroup struct {
 func (SupportsGroup) supportCondition() {}
 
 func (r *ImportAtRule) Type() NodeType   { return NodeAtRule }
-func (r *ImportAtRule) AtType() AtType   { return AtRuleImport }
-func (r *ImportAtRule) Accept(v Visitor) { v.VisitImportAtRule(r) }
+func (r *ImportAtRule) AtType() AtType   { return Import }
 func (r *ImportAtRule) String() string {
 	var sb strings.Builder
 	sb.WriteString("ImportAtRule{\n")
@@ -113,10 +120,11 @@ func supportConditionToString(condition SupportsCondition, indentLevel int) stri
 	}
 }
 
-func (pv *ParseVisitor) VisitImportAtRule(r *ImportAtRule) {
+func visitImportAtRule(pv *ParseVisitor, node AtRule) {
+    i := node.(*ImportAtRule)
 	pv.advance() // Consume 'import'
 	if pv.currentTokenIs(tokens.URI) || pv.currentTokenIs(tokens.STRING) {
-		r.URL = pv.parseValue()
+		i.URL = pv.parseValue()
 	} else {
 		pv.addError("Expected string or URI after @import", pv.currentToken)
 		return
@@ -127,11 +135,11 @@ func (pv *ParseVisitor) VisitImportAtRule(r *ImportAtRule) {
 		switch {
 		case pv.currentTokenIs(tokens.IDENT) && currTok == "supports":
             pv.advance() // consume supports
-			r.Supports = pv.parseSupportsCondition()
+			i.Supports = pv.parseSupportsCondition()
 		case pv.currentTokenIs(tokens.IDENT) && currTok == "layer":
-			r.Layer = pv.parseValue()
+			i.Layer = pv.parseValue()
 		case pv.currentTokenIs(tokens.IDENT) || pv.currentTokenIs(tokens.LPAREN):
-			r.Media = *pv.parseMediaQuery()
+			i.Media = *pv.parseMediaQuery()
 		default:
 			pv.addError("Unexpected token in @import rule", pv.currentToken)
 			return

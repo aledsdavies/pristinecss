@@ -7,6 +7,14 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const (
+	Media AtType = "media"
+)
+
+func init() {
+	RegisterAt(Media, visitMediaAtRule, func() AtRule { return &MediaAtRule{Name: []byte(Media)} })
+}
+
 var _ Node = (*MediaAtRule)(nil)
 
 type MediaAtRule struct {
@@ -16,11 +24,7 @@ type MediaAtRule struct {
 }
 
 func (m *MediaAtRule) Type() NodeType { return NodeAtRule }
-
-func (m *MediaAtRule) AtType() AtType { return AtRuleMedia }
-
-func (m *MediaAtRule) Accept(v Visitor) { v.VisitMediaAtRule(m) }
-
+func (m *MediaAtRule) AtType() AtType { return Media }
 func (m *MediaAtRule) String() string {
 	var sb strings.Builder
 	sb.WriteString("MediaAtRule{\n")
@@ -94,7 +98,8 @@ func (mf MediaFeature) String() string {
 	return fmt.Sprintf("MediaFeature{Name: %q, Value: %s}", mf.Name, valueStr)
 }
 
-func (pv *ParseVisitor) VisitMediaAtRule(m *MediaAtRule) {
+func visitMediaAtRule(pv *ParseVisitor, node AtRule) {
+	m := node.(*MediaAtRule)
 	pv.advance() // Consume 'media'
 	m.Query = *pv.parseMediaQuery()
 
@@ -107,14 +112,14 @@ func (pv *ParseVisitor) VisitMediaAtRule(m *MediaAtRule) {
 		switch pv.currentToken.Type {
 		case tokens.COMMENT:
 			comment := &Comment{Text: pv.currentToken.Literal}
-			comment.Accept(pv)
+			visitComment(pv, comment)
 			m.Rules = append(m.Rules, comment)
 		case tokens.DOT, tokens.HASH, tokens.COLON, tokens.DBLCOLON, tokens.IDENT, tokens.LBRACKET:
 			selector := &Selector{
 				Selectors: make([]SelectorValue, 0),
 				Rules:     make([]Node, 0),
 			}
-			selector.Accept(pv)
+			visitSelector(pv, selector)
 			m.Rules = append(m.Rules, selector)
 		default:
 			pv.addError("Unexpected token in media block", pv.currentToken)

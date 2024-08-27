@@ -7,6 +7,18 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const (
+	NodeKeyframeStop NodeType = "KeyframeStop"
+	Keyframe         AtType   = "keyframes"
+	WebkitKeyframe   AtType   = "-webkit-keyframes"
+)
+
+func init() {
+	RegisterAt(Keyframe, visitKeyframesAtRule, func() AtRule { return &KeyframesAtRule{} })
+	RegisterAt(WebkitKeyframe, visitKeyframesAtRule, func() AtRule { return &KeyframesAtRule{WebKitPrefix: true} })
+	RegisterNodeType(NodeKeyframeStop, visitKeyframeStop)
+}
+
 var _ Node = (*KeyframesAtRule)(nil)
 
 type KeyframesAtRule struct {
@@ -16,26 +28,22 @@ type KeyframesAtRule struct {
 }
 
 func (k *KeyframesAtRule) Type() NodeType { return NodeAtRule }
-
-func (k *KeyframesAtRule) AtType() AtType { return AtRuleKeyframe }
-
-func (k *KeyframesAtRule) Accept(v Visitor) { v.VisitKeyframesAtRule(k) }
-
+func (k *KeyframesAtRule) AtType() AtType { return Keyframe }
 func (k *KeyframesAtRule) String() string {
-    var sb strings.Builder
-    sb.WriteString("KeyframesAtRule{\n")
-    if k.WebKitPrefix {
-        sb.WriteString("  WebKitPrefix: true,\n")
-    }
-    sb.WriteString(fmt.Sprintf("  Name: %q,\n", string(k.Name)))
-    sb.WriteString("  Stops: [\n")
-    for _, stop := range k.Stops {
-        sb.WriteString(indentLines(stop.String(), 4))
-        sb.WriteString(",\n")
-    }
-    sb.WriteString("  ]\n")
-    sb.WriteString("}")
-    return sb.String()
+	var sb strings.Builder
+	sb.WriteString("KeyframesAtRule{\n")
+	if k.WebKitPrefix {
+		sb.WriteString("  WebKitPrefix: true,\n")
+	}
+	sb.WriteString(fmt.Sprintf("  Name: %q,\n", string(k.Name)))
+	sb.WriteString("  Stops: [\n")
+	for _, stop := range k.Stops {
+		sb.WriteString(indentLines(stop.String(), 4))
+		sb.WriteString(",\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteString("}")
+	return sb.String()
 }
 
 type KeyframeStop struct {
@@ -43,8 +51,7 @@ type KeyframeStop struct {
 	Rules []Node  // Declarations for this keyframe stop
 }
 
-func (ks *KeyframeStop) Type() NodeType   { return NodeKeyframeStop }
-func (ks *KeyframeStop) Accept(v Visitor) { v.VisitKeyframeStop(ks) }
+func (ks *KeyframeStop) Type() NodeType { return NodeKeyframeStop }
 func (ks KeyframeStop) String() string {
 	var sb strings.Builder
 	sb.WriteString("KeyframeStop{\n")
@@ -62,7 +69,8 @@ func (ks KeyframeStop) String() string {
 	return sb.String()
 }
 
-func (pv *ParseVisitor) VisitKeyframesAtRule(k *KeyframesAtRule) {
+func visitKeyframesAtRule(pv *ParseVisitor, node AtRule) {
+	k := node.(*KeyframesAtRule)
 	pv.advance() // Consume 'keyframes'
 
 	if !pv.currentTokenIs(tokens.IDENT) {
@@ -81,14 +89,15 @@ func (pv *ParseVisitor) VisitKeyframesAtRule(k *KeyframesAtRule) {
 		stop := &KeyframeStop{
 			Rules: make([]Node, 0),
 		}
-		stop.Accept(pv)
+		visitKeyframeStop(pv, stop)
 		k.Stops = append(k.Stops, *stop)
 	}
 
 	pv.consume(tokens.RBRACE, "Expected '}' to close @keyframes block")
 }
 
-func (pv *ParseVisitor) VisitKeyframeStop(ks *KeyframeStop) {
+func visitKeyframeStop(pv *ParseVisitor, node Node) {
+	ks := node.(*KeyframeStop)
 	for !pv.currentTokenIs(tokens.LBRACE) && !pv.currentTokenIs(tokens.EOF) {
 		switch pv.currentToken.Type {
 		case tokens.IDENT, tokens.NUMBER:
@@ -116,7 +125,7 @@ func (pv *ParseVisitor) VisitKeyframeStop(ks *KeyframeStop) {
 		declaration := &Declaration{
 			Key: pv.currentToken.Literal,
 		}
-		declaration.Accept(pv)
+		visitDeclaration(pv, declaration)
 		ks.Rules = append(ks.Rules, declaration)
 
 		if pv.currentTokenIs(tokens.SEMICOLON) {

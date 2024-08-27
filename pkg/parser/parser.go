@@ -20,11 +20,9 @@ func (e ParseError) Error() string {
 func Parse(tokens []tokens.Token) (*Stylesheet, []ParseError) {
 	stylesheet := &Stylesheet{Rules: make([]Node, 0)}
 	visitor := NewParseVisitor(tokens)
-	stylesheet.Accept(visitor)
+	visitStylesheet(visitor, stylesheet)
 	return stylesheet, visitor.errors
 }
-
-var _ Visitor = (*ParseVisitor)(nil)
 
 type ParseVisitor struct {
 	tokens       []tokens.Token

@@ -7,6 +7,14 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const (
+    NodeDeclaration NodeType = "Declaration"
+)
+
+func init() {
+	RegisterNodeType(NodeDeclaration, visitDeclaration)
+}
+
 var _ Node = (*Declaration)(nil)
 
 type Declaration struct {
@@ -14,8 +22,7 @@ type Declaration struct {
 	Value []Value
 }
 
-func (d *Declaration) Type() NodeType   { return NodeDeclaration }
-func (d *Declaration) Accept(v Visitor) { v.VisitDeclaration(d) }
+func (d *Declaration) Type() NodeType { return NodeDeclaration }
 func (d *Declaration) String() string {
 	var sb strings.Builder
 	sb.WriteString("Declaration{\n")
@@ -30,7 +37,8 @@ func (d *Declaration) String() string {
 	return sb.String()
 }
 
-func (pv *ParseVisitor) VisitDeclaration(d *Declaration) {
+func visitDeclaration(pv *ParseVisitor, node Node) {
+    d := node.(*Declaration)
 	pv.advance() // Consume property name
 	if !pv.consume(tokens.COLON, "Expected ':' after property name") {
 		pv.skipToNextSemicolonOrBrace()

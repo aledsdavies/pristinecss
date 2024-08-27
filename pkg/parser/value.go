@@ -7,6 +7,25 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const (
+	NodeValue NodeType = "Value"
+)
+
+func init() {
+	RegisterNodeType(NodeValue, func(pv *ParseVisitor, node Node) {
+		switch v := node.(type) {
+		case *BasicValue:
+			visitBasicValue(pv, v)
+		case *StringValue:
+			visitStringValue(pv, v)
+		case *FunctionValue:
+			visitFunctionValue(pv, v)
+		default:
+			pv.addError(fmt.Sprintf("Unknown value type: %T", v), pv.currentToken)
+		}
+	})
+}
+
 type ValueType int
 
 const (
@@ -22,6 +41,8 @@ type Value interface {
 }
 
 var _ Value = (*BasicValue)(nil)
+var _ Value = (*StringValue)(nil)
+var _ Value = (*FunctionValue)(nil)
 
 type BasicValue struct {
 	Value []byte
@@ -29,7 +50,6 @@ type BasicValue struct {
 
 func (bv *BasicValue) ValueType() ValueType { return Basic }
 func (bv *BasicValue) Type() NodeType       { return NodeValue }
-func (bv *BasicValue) Accept(v Visitor)     {}
 func (bv *BasicValue) String() string {
 	return fmt.Sprintf("BasicValue{Value: %q}", string(bv.Value))
 }
@@ -41,7 +61,6 @@ type StringValue struct {
 
 func (bv *StringValue) ValueType() ValueType { return String }
 func (bv *StringValue) Type() NodeType       { return NodeValue }
-func (bv *StringValue) Accept(v Visitor)     {}
 func (bv *StringValue) String() string {
 	return fmt.Sprintf("StringValue{SingleQuote: %v, Value: %q}", bv.SingleQuote, string(bv.Value))
 }
@@ -55,7 +74,6 @@ type FunctionValue struct {
 
 func (fv *FunctionValue) ValueType() ValueType { return Function }
 func (fv *FunctionValue) Type() NodeType       { return NodeValue }
-func (fv *FunctionValue) Accept(v Visitor)     {}
 func (fv *FunctionValue) String() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("FunctionValue{Name: %q, Arguments: [", string(fv.Name)))
@@ -69,39 +87,60 @@ func (fv *FunctionValue) String() string {
 	return sb.String()
 }
 
+func visitBasicValue(pv *ParseVisitor, node Node) {
+	bv := node.(*BasicValue)
+	bv.Value = pv.currentToken.Literal
+	pv.advance()
+}
+
+func visitStringValue(pv *ParseVisitor, node Node) {
+	sv := node.(*StringValue)
+	str := pv.currentToken.Literal
+	sv.SingleQuote = str[0] == '\''
+	sv.Value = str[1 : len(str)-1] // Remove the quotes
+	pv.advance()
+}
+
+func visitFunctionValue(pv *ParseVisitor, node Node) {
+	fv := node.(*FunctionValue)
+	fv.Name = pv.currentToken.Literal
+	pv.advance() // Move to '('
+	pv.advance() // Move past '('
+
+	for !pv.currentTokenIs(tokens.RPAREN) && !pv.currentTokenIs(tokens.EOF) {
+		fv.Arguments = append(fv.Arguments, pv.parseValue())
+		if pv.currentTokenIs(tokens.COMMA) {
+			pv.advance()
+		}
+	}
+
+	pv.consume(tokens.RPAREN, "Expected ')' to close function")
+}
+
 func (pv *ParseVisitor) parseValue() Value {
 	var value Value
 	switch pv.currentToken.Type {
 	case tokens.NUMBER:
-		value = pv.parseNumberValue()
+		return pv.parseNumberValue()
 	case tokens.IDENT:
 		if pv.nextTokenIs(tokens.LPAREN) {
-			value = pv.parseFunctionValue()
+			value = &FunctionValue{}
 		} else {
-			value = &BasicValue{Value: pv.currentToken.Literal}
-			pv.advance()
+			value = &BasicValue{}
 		}
 	case tokens.URI:
-		urlContent, singleQuote, quoteless := extractURLContent(pv.currentToken.Literal)
-
-		args := []Value{}
-		if quoteless {
-			args = append(args, &BasicValue{Value: urlContent})
-		} else {
-			args = append(args, &StringValue{SingleQuote: singleQuote, Value: urlContent})
-		}
-
-		value = &FunctionValue{
-			Name:      []byte("url"),
-			Arguments: args,
-		}
+		value = pv.parseURLValue()
 		pv.advance()
+		return value
 	case tokens.STRING:
-		value = pv.parseStringValue()
+		value = &StringValue{}
 	default:
-		value = &BasicValue{Value: pv.currentToken.Literal}
-		pv.advance()
+		value = &BasicValue{}
 	}
+
+	handler := GetNodeHandler(value)
+	handler(pv, value)
+
 	return value
 }
 
@@ -115,40 +154,20 @@ func (pv *ParseVisitor) parseNumberValue() Value {
 	return &BasicValue{Value: number}
 }
 
-func (pv *ParseVisitor) parseFunctionValue() Value {
-	functionName := pv.currentToken.Literal
-	pv.advance() // Move to '('
-	pv.advance() // Move past '('
-	fv := &FunctionValue{Name: functionName}
+func (pv *ParseVisitor) parseURLValue() Value {
+	urlContent, singleQuote, quoteless := extractURLContent(pv.currentToken.Literal)
 
-	for !pv.currentTokenIs(tokens.RPAREN) && !pv.currentTokenIs(tokens.EOF) {
-		fv.Arguments = append(fv.Arguments, pv.parseValue())
-		if pv.currentTokenIs(tokens.COMMA) {
-			pv.advance()
-		}
-	}
-
-	if pv.currentTokenIs(tokens.RPAREN) {
-		pv.advance() // Move past ')'
+	var arg Value
+	if quoteless {
+		arg = &BasicValue{Value: urlContent}
 	} else {
-		pv.addError("Expected ')' to close function", pv.currentToken)
+		arg = &StringValue{SingleQuote: singleQuote, Value: urlContent}
 	}
 
-	return fv
-}
-
-func (pv *ParseVisitor) parseStringValue() Value {
-	str := pv.currentToken.Literal
-	singleQuote := str[0] == '\''
-	// Remove the quotes
-	str = str[1 : len(str)-1]
-
-	value := &StringValue{
-		SingleQuote: singleQuote,
-		Value:       str,
+	return &FunctionValue{
+		Name:      []byte("url"),
+		Arguments: []Value{arg},
 	}
-	pv.advance()
-	return value
 }
 
 // Helper function to extract the contents of the url() function

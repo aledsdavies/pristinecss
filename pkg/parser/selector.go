@@ -7,6 +7,14 @@ import (
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
 )
 
+const (
+	NodeSelector NodeType = "selector"
+)
+
+func init() {
+	RegisterNodeType(NodeSelector, visitSelector)
+}
+
 var _ Node = (*Selector)(nil)
 
 type Selector struct {
@@ -19,8 +27,7 @@ type Selector struct {
 	Rules []Node
 }
 
-func (c *Selector) Type() NodeType   { return NodeSelector }
-func (s *Selector) Accept(v Visitor) { v.VisitSelector(s) }
+func (c *Selector) Type() NodeType { return NodeSelector }
 func (s *Selector) String() string {
 	var sb strings.Builder
 	sb.WriteString("Selector{\n")
@@ -62,7 +69,8 @@ func (sv SelectorValue) String() string {
 	return fmt.Sprintf("{Type: %s, Value: %q}", selectorTypeToString(sv.Type), sv.Value)
 }
 
-func (pv *ParseVisitor) VisitSelector(s *Selector) {
+func visitSelector(pv *ParseVisitor, node Node) {
+	s := node.(*Selector)
 	pv.parseSelector(s)
 	if !pv.consume(tokens.LBRACE, "Expected '{' after selector") {
 		return
@@ -74,9 +82,9 @@ func (pv *ParseVisitor) VisitSelector(s *Selector) {
 			continue
 		}
 		declaration := &Declaration{
-			Key:   pv.currentToken.Literal,
+			Key: pv.currentToken.Literal,
 		}
-		declaration.Accept(pv)
+		visitDeclaration(pv, declaration)
 		s.Rules = append(s.Rules, declaration)
 
 		if pv.currentTokenIs(tokens.SEMICOLON) {
