@@ -157,6 +157,31 @@ func TestComplexSelectors(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Complex selector with pseudo-classes",
+			input: `.form-select:not([multiple]):not([size]) {
+				padding-right: 1.2rem;
+			}`,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{
+							{Type: Class, Value: []byte(".form-select")},
+							{Type: Pseudo, Value: []byte(":not([multiple])")},
+							{Type: Pseudo, Value: []byte(":not([size])")},
+						},
+						Rules: []Node{
+							&Declaration{
+								Key: []byte("padding-right"),
+								Value: []Value{
+									&BasicValue{Value: []byte("1.2rem")},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	runTests(t, tests)
@@ -214,7 +239,7 @@ func TestPseudoSelectors(t *testing.T) {
 							{Type: Pseudo, Value: []byte("::before")},
 						},
 						Rules: []Node{
-                            &Declaration{Key: []byte("content"), Value: []Value{&StringValue{SingleQuote: true, Value: []byte("→")}}},
+							&Declaration{Key: []byte("content"), Value: []Value{&StringValue{SingleQuote: true, Value: []byte("→")}}},
 						},
 					},
 				},
@@ -224,7 +249,6 @@ func TestPseudoSelectors(t *testing.T) {
 
 	runTests(t, tests)
 }
-
 
 func runTests(t *testing.T, tests []struct {
 	name     string

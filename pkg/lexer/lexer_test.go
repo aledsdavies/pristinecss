@@ -183,6 +183,56 @@ func TestComplexSelectors(t *testing.T) {
 				{Type: tokens.RBRACE, Literal: []byte("}")},
 			},
 		},
+		{
+			name: "CSS numbers",
+			input: `
+            .numbers {
+                opacity: .5;
+                line-height: 1.5;
+                font-size: 0.8em;
+                margin: -.5px 10px .2em 0;
+                transform: scale(1.1, .9);
+            }`,
+			expected: []tokens.Token{
+				{Type: tokens.DOT, Literal: []byte(".")},
+				{Type: tokens.IDENT, Literal: []byte("numbers")},
+				{Type: tokens.LBRACE, Literal: []byte("{")},
+				{Type: tokens.IDENT, Literal: []byte("opacity")},
+				{Type: tokens.COLON, Literal: []byte(":")},
+				{Type: tokens.NUMBER, Literal: []byte(".5")},
+				{Type: tokens.SEMICOLON, Literal: []byte(";")},
+				{Type: tokens.IDENT, Literal: []byte("line-height")},
+				{Type: tokens.COLON, Literal: []byte(":")},
+				{Type: tokens.NUMBER, Literal: []byte("1.5")},
+				{Type: tokens.SEMICOLON, Literal: []byte(";")},
+				{Type: tokens.IDENT, Literal: []byte("font-size")},
+				{Type: tokens.COLON, Literal: []byte(":")},
+				{Type: tokens.NUMBER, Literal: []byte("0.8")},
+				{Type: tokens.IDENT, Literal: []byte("em")},
+				{Type: tokens.SEMICOLON, Literal: []byte(";")},
+				{Type: tokens.IDENT, Literal: []byte("margin")},
+				{Type: tokens.COLON, Literal: []byte(":")},
+				{Type: tokens.MINUS, Literal: []byte("-")},
+				{Type: tokens.NUMBER, Literal: []byte(".5")},
+				{Type: tokens.IDENT, Literal: []byte("px")},
+				{Type: tokens.NUMBER, Literal: []byte("10")},
+				{Type: tokens.IDENT, Literal: []byte("px")},
+				{Type: tokens.NUMBER, Literal: []byte(".2")},
+				{Type: tokens.IDENT, Literal: []byte("em")},
+				{Type: tokens.NUMBER, Literal: []byte("0")},
+				{Type: tokens.SEMICOLON, Literal: []byte(";")},
+				{Type: tokens.IDENT, Literal: []byte("transform")},
+				{Type: tokens.COLON, Literal: []byte(":")},
+				{Type: tokens.IDENT, Literal: []byte("scale")},
+				{Type: tokens.LPAREN, Literal: []byte("(")},
+				{Type: tokens.NUMBER, Literal: []byte("1.1")},
+				{Type: tokens.COMMA, Literal: []byte(",")},
+				{Type: tokens.NUMBER, Literal: []byte(".9")},
+				{Type: tokens.RPAREN, Literal: []byte(")")},
+				{Type: tokens.SEMICOLON, Literal: []byte(";")},
+				{Type: tokens.RBRACE, Literal: []byte("}")},
+			},
+		},
 	}
 
 	runTests(t, tests)
@@ -262,14 +312,14 @@ func TestURIVariations(t *testing.T) {
 			name:  "Simple URL",
 			input: ".foo {background-image: url('image.jpg');}",
 			expected: []tokens.Token{
-                {Type: tokens.DOT, Literal: []byte(".")},
-                {Type: tokens.IDENT, Literal: []byte("foo")},
-                {Type: tokens.LBRACE, Literal: []byte("{")},
+				{Type: tokens.DOT, Literal: []byte(".")},
+				{Type: tokens.IDENT, Literal: []byte("foo")},
+				{Type: tokens.LBRACE, Literal: []byte("{")},
 				{Type: tokens.IDENT, Literal: []byte("background-image")},
 				{Type: tokens.COLON, Literal: []byte(":")},
 				{Type: tokens.URI, Literal: []byte("url('image.jpg')")},
 				{Type: tokens.SEMICOLON, Literal: []byte(";")},
-                {Type: tokens.RBRACE, Literal: []byte("}")},
+				{Type: tokens.RBRACE, Literal: []byte("}")},
 			},
 		},
 		{

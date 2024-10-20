@@ -179,6 +179,24 @@ func (pv *ParseVisitor) parsePseudoSelector() *SelectorValue {
 	if pv.currentTokenIs(tokens.IDENT) {
 		pseudo = append(pseudo, pv.currentToken.Literal...)
 		pv.advance()
+
+		// Check if it's a functional pseudo-class
+		if pv.currentTokenIs(tokens.LPAREN) {
+			pseudo = append(pseudo, pv.currentToken.Literal...)
+			pv.advance() // Consume '('
+
+			// Parse the contents of the pseudo-class
+			pseudoContents := pv.parsePseudoClassContents()
+			pseudo = append(pseudo, pseudoContents...)
+
+			if pv.currentTokenIs(tokens.RPAREN) {
+				pseudo = append(pseudo, pv.currentToken.Literal...)
+				pv.advance() // Consume ')'
+			} else {
+				pv.addError("Expected closing parenthesis for pseudo-class", pv.currentToken)
+			}
+		}
+
 		return &SelectorValue{
 			Type:  Pseudo,
 			Value: pseudo,
@@ -187,4 +205,32 @@ func (pv *ParseVisitor) parsePseudoSelector() *SelectorValue {
 		pv.addError("Expected identifier after pseudo-selector", pv.currentToken)
 		return nil
 	}
+}
+
+func (pv *ParseVisitor) parsePseudoClassContents() []byte {
+	var contents []byte
+	parenthesesCount := 1
+
+	for parenthesesCount > 0 && !pv.currentTokenIs(tokens.EOF) {
+		switch pv.currentToken.Type {
+		case tokens.LPAREN:
+			parenthesesCount++
+		case tokens.RPAREN:
+			parenthesesCount--
+			if parenthesesCount == 0 {
+				return contents
+			}
+		case tokens.LBRACKET:
+			attributeSelector := pv.parseAttributeSelector()
+			if attributeSelector != nil {
+				contents = append(contents, attributeSelector.Value...)
+			}
+			continue
+		}
+
+		contents = append(contents, pv.currentToken.Literal...)
+		pv.advance()
+	}
+
+	return contents
 }

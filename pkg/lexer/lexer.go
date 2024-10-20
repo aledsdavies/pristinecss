@@ -218,7 +218,12 @@ func (l *lexer) nextToken() *tokens.Token {
 			tok.Type = tokens.COLON
 		}
 	case DOT:
-		tok.Type = tokens.DOT
+        if isDigit[l.peekChar()] {
+            tok.Type = tokens.NUMBER
+            l.readNumber()
+        } else {
+            tok.Type = tokens.DOT
+        }
 	case HASH:
 		tok.Type = l.readHashOrColor()
 	case DASH:

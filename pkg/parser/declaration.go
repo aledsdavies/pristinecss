@@ -2,13 +2,12 @@ package parser
 
 import (
 	"fmt"
-	"strings"
-
 	"github.com/aledsdavies/pristinecss/pkg/tokens"
+	"strings"
 )
 
 const (
-    NodeDeclaration NodeType = "Declaration"
+	NodeDeclaration NodeType = "Declaration"
 )
 
 func init() {
@@ -18,8 +17,9 @@ func init() {
 var _ Node = (*Declaration)(nil)
 
 type Declaration struct {
-	Key   []byte
-	Value []Value
+	Key       []byte
+	Value     []Value
+	Important bool
 }
 
 func (d *Declaration) Type() NodeType { return NodeDeclaration }
@@ -33,12 +33,13 @@ func (d *Declaration) String() string {
 		sb.WriteString(",\n")
 	}
 	sb.WriteString("  ]\n")
+	sb.WriteString(fmt.Sprintf("  Important: %v\n", d.Important))
 	sb.WriteString("}")
 	return sb.String()
 }
 
 func visitDeclaration(pv *ParseVisitor, node Node) {
-    d := node.(*Declaration)
+	d := node.(*Declaration)
 	pv.advance() // Consume property name
 	if !pv.consume(tokens.COLON, "Expected ':' after property name") {
 		pv.skipToNextSemicolonOrBrace()
@@ -49,6 +50,16 @@ func visitDeclaration(pv *ParseVisitor, node Node) {
 		switch pv.currentToken.Type {
 		case tokens.IDENT, tokens.HASH, tokens.URI, tokens.STRING, tokens.NUMBER:
 			d.Value = append(d.Value, pv.parseValue())
+		case tokens.EXCLAMATION:
+			if pv.nextTokenIs(tokens.IDENT) && string(pv.nextToken.Literal) == "important" {
+				d.Important = true
+				pv.advance() // Consume '!'
+				pv.advance() // Consume 'important'
+			} else {
+				pv.addError("Unexpected '!' in declaration value", pv.currentToken)
+				pv.skipToNextSemicolonOrBrace()
+				return
+			}
 		case tokens.COMMA:
 			// Skip the comma and continue parsing values
 			pv.advance()
