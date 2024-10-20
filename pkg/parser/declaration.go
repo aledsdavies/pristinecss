@@ -45,10 +45,9 @@ func visitDeclaration(pv *ParseVisitor, node Node) {
 		pv.skipToNextSemicolonOrBrace()
 		return
 	}
-
 	for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
 		switch pv.currentToken.Type {
-		case tokens.IDENT, tokens.HASH, tokens.URI, tokens.STRING, tokens.NUMBER:
+		case tokens.IDENT, tokens.HASH, tokens.URI, tokens.STRING, tokens.NUMBER, tokens.COLOR:
 			d.Value = append(d.Value, pv.parseValue())
 		case tokens.EXCLAMATION:
 			if pv.nextTokenIs(tokens.IDENT) && string(pv.nextToken.Literal) == "important" {
@@ -69,7 +68,6 @@ func visitDeclaration(pv *ParseVisitor, node Node) {
 			return
 		}
 	}
-
 	// Consume the semicolon if present
 	if pv.currentTokenIs(tokens.SEMICOLON) {
 		pv.advance()

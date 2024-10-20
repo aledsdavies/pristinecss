@@ -33,8 +33,8 @@ func TestDeclarations(t *testing.T) {
 						Selectors: []SelectorValue{{Type: Element, Value: []byte("div")}},
 						Rules: []Node{
 							&Declaration{
-								Key: []byte("color"),
-								Value: []Value{&BasicValue{Value: []byte("red")}},
+								Key:       []byte("color"),
+								Value:     []Value{&BasicValue{Value: []byte("red")}},
 								Important: true,
 							},
 						},
@@ -201,8 +201,32 @@ func TestDeclarations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Declaration with color value",
+			input: `
+			.colorful {
+				color: #ff0000;
+				background-color: #00ff00;
+				border: 1px solid #0000ff;
+			}`,
+			expected: &Stylesheet{
+				Rules: []Node{
+					&Selector{
+						Selectors: []SelectorValue{{Type: Class, Value: []byte(".colorful")}},
+						Rules: []Node{
+							&Declaration{Key: []byte("color"), Value: []Value{&BasicValue{Value: []byte("#ff0000")}}},
+							&Declaration{Key: []byte("background-color"), Value: []Value{&BasicValue{Value: []byte("#00ff00")}}},
+							&Declaration{Key: []byte("border"), Value: []Value{
+								&BasicValue{Value: []byte("1px")},
+								&BasicValue{Value: []byte("solid")},
+								&BasicValue{Value: []byte("#0000ff")},
+							}},
+						},
+					},
+				},
+			},
+		},
 	}
-
 
 	runTests(t, tests)
 }
