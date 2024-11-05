@@ -29,15 +29,15 @@ func init() {
 type ValueType int
 
 const (
-	Basic ValueType = iota
-	String
-	Function
-	// Add more value types here as needed
+    Basic ValueType = iota
+    String
+    Function
+    ValueComment
 )
 
 type Value interface {
-	Node
-	ValueType() ValueType
+    Node
+    ValueType() ValueType
 }
 
 var _ Value = (*BasicValue)(nil)

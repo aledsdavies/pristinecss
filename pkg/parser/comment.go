@@ -18,6 +18,7 @@ type Comment struct {
 }
 
 func (c *Comment) Type() NodeType { return NodeComment }
+func (c *Comment) ValueType() ValueType { return ValueComment }
 func (c *Comment) String() string {
     return fmt.Sprintf("Comment{Text: %q}", string(c.Text))
 }

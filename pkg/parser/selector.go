@@ -76,19 +76,24 @@ func visitSelector(pv *ParseVisitor, node Node) {
 		return
 	}
 	for !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
-		if !pv.currentTokenIs(tokens.IDENT) {
-			pv.addError("Expected property name", pv.currentToken)
-			pv.skipToNextSemicolonOrBrace()
-			continue
-		}
-		declaration := &Declaration{
-			Key: pv.currentToken.Literal,
-		}
-		visitDeclaration(pv, declaration)
-		s.Rules = append(s.Rules, declaration)
+		switch pv.currentToken.Type {
+		case tokens.COMMENT:
+			comment := &Comment{Text: pv.currentToken.Literal}
+			visitComment(pv, comment)
+			s.Rules = append(s.Rules, comment)
+		case tokens.IDENT:
+			declaration := &Declaration{
+				Key: pv.currentToken.Literal,
+			}
+			visitDeclaration(pv, declaration)
+			s.Rules = append(s.Rules, declaration)
 
-		if pv.currentTokenIs(tokens.SEMICOLON) {
-			pv.advance() // Consume ';'
+			if pv.currentTokenIs(tokens.SEMICOLON) {
+				pv.advance() // Consume ';'
+			}
+		default:
+			pv.addError("Expected property name or comment", pv.currentToken)
+			pv.skipToNextSemicolonOrBrace()
 		}
 	}
 	pv.consume(tokens.RBRACE, "Expected '}' at the end of declaration block")
@@ -97,6 +102,11 @@ func visitSelector(pv *ParseVisitor, node Node) {
 func (pv *ParseVisitor) parseSelector(s *Selector) {
 	for !pv.currentTokenIs(tokens.EOF) && !pv.currentTokenIs(tokens.LBRACE) {
 		switch pv.currentToken.Type {
+		case tokens.COMMENT:
+			// Handle comments in selector definition
+			comment := &Comment{Text: pv.currentToken.Literal}
+			visitComment(pv, comment)
+			s.Rules = append(s.Rules, comment)
 		case tokens.IDENT:
 			s.Selectors = append(s.Selectors, SelectorValue{
 				Type:  Element,

@@ -47,6 +47,10 @@ func visitDeclaration(pv *ParseVisitor, node Node) {
 	}
 	for !pv.currentTokenIs(tokens.SEMICOLON) && !pv.currentTokenIs(tokens.RBRACE) && !pv.currentTokenIs(tokens.EOF) {
 		switch pv.currentToken.Type {
+		case tokens.COMMENT:
+			comment := &Comment{Text: pv.currentToken.Literal}
+			visitComment(pv, comment)
+			d.Value = append(d.Value, comment)
 		case tokens.IDENT, tokens.HASH, tokens.URI, tokens.STRING, tokens.NUMBER, tokens.COLOR:
 			d.Value = append(d.Value, pv.parseValue())
 		case tokens.EXCLAMATION:
